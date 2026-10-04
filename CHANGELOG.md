@@ -1,3 +1,139 @@
+
+---
+
+## 📄 File 14 (PATCH): `CHANGELOG.md`
+
+Update the top of the file. Replace the current `## [Unreleased]` block with:
+
+```markdown
+## [1.0.0] — 2026-10-04
+
+**🏆 First stable release.** All reviewer findings from the initial assessment
+have been closed. This release represents an enterprise-grade reference
+implementation of a Tier-1 banking data platform.
+
+### Release Highlights
+
+**7 workstreams completed:**
+
+| # | Workstream | Highlights |
+|---|---|---|
+| 1 | PII & Masking Correctness | Real email/phone masking; HMAC via UC; Bronze PII boundary |
+| 2 | Idempotency & Late Data | Business idempotency keys; late-data quarantine; as-of joins |
+| 3 | Banking Reconciliation | Count + amount + double-entry reconciliation engine |
+| 4 | Security & Secrets | WIF, pinned CLI, Terraform remote state, full scanning |
+| 5 | Data Contracts | YAML contracts for 10 datasets, semver-versioned, CI-enforced |
+| 6 | Platform Operations | DR plan, VNet, Key Vault, environment separation |
+| 7 | Portfolio Polish | Honest README, ADRs, glossary, portfolio guide |
+
+### Added
+
+<details>
+<summary>Click to expand full release notes</summary>
+
+#### Workstream 7 — Portfolio Polish
+- Complete README rebrand: "enterprise-grade reference implementation"
+- `docs/WHAT_IS_NOT_INCLUDED.md` — explicit scope boundaries
+- `docs/ARCHITECTURE_DECISIONS.md` — 12 ADRs
+- `docs/GLOSSARY.md` — banking + Databricks terminology
+- `docs/PORTFOLIO_GUIDE.md` — interview cheat sheet
+- `docs/GITHUB_SETUP.md` — branch protection, security features
+- `.github/PULL_REQUEST_TEMPLATE.md`
+- `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.yml`
+- `.github/ISSUE_TEMPLATE/config.yml`
+- `.github/workflows/markdown-lint.yml`
+- `.github/workflows/link-check.yml`
+- `VERSION` file
+
+#### Workstream 6 — Platform Operations
+- `docs/DR_PLAN.md` — RPO ≤ 15 min, RTO ≤ 60 min; quarterly drills
+- `docs/NETWORK_ARCHITECTURE.md` — VNet, Private Endpoints, egress firewall
+- `docs/KEY_VAULT_INTEGRATION.md` — secret scopes, rotation, RBAC
+- `docs/ENVIRONMENT_SEPARATION.md` — Dev/QA/Prod isolation
+- `docs/RUNBOOK.md` — on-call procedures
+- `docs/INCIDENT_RESPONSE.md` — severity levels, playbooks
+- `terraform/networking.tf`, `key_vault.tf`, `environments.tf`, `dr_replication.tf`
+- `scripts/dr_drill.sh`, `verify_key_vault.sh`
+- `.azure-pipelines/dr-drill.yml`
+
+#### Workstream 5 — Data Contracts
+- `contracts/` — 10 dataset contracts + meta-schema
+- `src/contract_validation.py`, `scripts/validate_contracts.py`
+- `docs/SCHEMA_EVOLUTION.md`
+- CI stage `ContractValidation`
+- 12 unit tests
+
+#### Workstream 4 — Security & Secrets
+- WIF replaces PATs in CI/CD
+- Pinned CLI + SHA256 verification
+- Terraform remote state backend
+- gitleaks, bandit, pip-audit, checkov, trivy, CodeQL, Dependabot
+- `SECURITY.md`, `docs/TERRAFORM_STATE.md`, `docs/SECRET_MANAGEMENT.md`
+- `CODEOWNERS`, `.pre-commit-config.yaml`, `.gitleaks.toml`
+
+#### Workstream 3 — Reconciliation
+- `src/reconciliation.py` — count + amount + double-entry
+- `cur_gold.reconciliation_results` + views
+- `banking_reconciliation` Workflow (02:45 IST daily)
+- `docs/RECONCILIATION.md`, `sql/reconciliation_queries.sql`
+- 5 unit tests
+
+#### Workstream 2 — Idempotency & Late Data
+- Business idempotency key: `(transaction_id, source_system, event_version)`
+- `silver_transactions_late` quarantine
+- Historical / as-of joins in `fact_transactions`
+- Deterministic `_ingest_sequence` replaces `uuid()`
+- `docs/IDEMPOTENCY.md`
+- 4 unit tests
+
+#### Workstream 1 — PII & Masking
+- Real email/phone masking (was `lower(trim(...))`)
+- `email_sha256`, `phone_sha256`, `card_number_sha256`
+- `docs/SECURITY_BOUNDARY.md`
+- REVOKE on raw_bronze + pii_hmac
+- 5 unit tests
+
+</details>
+
+### Statistics
+
+| Metric | Value |
+|---|---|
+| Files | 100+ |
+| Lines of Python | ~4,000 |
+| Lines of Terraform | ~800 |
+| Documentation | 17 design docs |
+| Unit tests | 26 |
+| ADRs | 12 |
+| Datasets | 10 |
+| Tables (Bronze/Silver/Gold) | 30+ |
+| Reviewer findings closed | 25 of 25 ✅ |
+
+### Breaking Changes
+
+None relative to unreleased state. First release.
+
+### Known Limitations
+
+See [`docs/WHAT_IS_NOT_INCLUDED.md`](docs/WHAT_IS_NOT_INCLUDED.md) for the
+complete list of what this reference implementation does not include.
+
+---
+
+## [Unreleased]
+
+### Planned
+- Integration tests against `banking_test_catalog`
+- End-to-end tests with synthetic data
+- ML/AI extension (fraud scoring, churn prediction)
+- Multi-region active-active DR
+- Delta Sharing for inter-org data products
+- Vector search / GenAI extension
+
+
+
+
+
 ### Fixed
 - **Critical:** `email_masked` in `silver_customers` and `silver_employees` now uses real masking (`j*********@gmail.com`) instead of `lower(trim(email))` which was not a mask
 - **Critical:** `silver_employees.phone_masked` now uses real masking — was previously unmasked
@@ -22,6 +158,8 @@
 ---
 
 ## 📄 File 7 (PATCH): `CHANGELOG.md`
+
+
 
 Add under `## [Unreleased]`:
 
