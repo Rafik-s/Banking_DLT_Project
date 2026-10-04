@@ -3,7 +3,7 @@
 # Core
 pyspark==3.5.1
 delta-spark==3.2.0
-databricks-sdk==0.30.0
+databricks-sdk==0.145.0
 
 # Configuration
 pyyaml==6.0.2
