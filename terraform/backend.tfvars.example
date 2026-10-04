@@ -1,0 +1,13 @@
+# ============================================================================
+# TEMPLATE for Terraform backend config
+#
+# Copy to backend.tfvars (which is .gitignore'd) and fill in real values.
+# ============================================================================
+
+resource_group_name  = "rg-banking-tfstate-dev"
+storage_account_name = "stbankingtfstatedev"
+container_name       = "tfstate"
+key                  = "banking-dlt-dev.tfstate"
+
+# Optional: use Azure AD auth (default) or a SAS token stored in KV
+# use_azuread_auth = true

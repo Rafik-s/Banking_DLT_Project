@@ -104,3 +104,137 @@ def test_classify_no_discrepancy_returns_pass():
 - `docs/RECONCILIATION.md` — framework documentation
 - `terraform/reconciliation_alerts.tf` — Terraform-provisioned views
 - Unit tests in `tests/unit/test_reconciliation.py`
+
+
+
+
+
+
+---
+
+## 📄 File 6 (NEW): `.gitleaks.toml`
+
+```toml
+# ============================================================================
+# GITLEAKS CONFIGURATION — Banking DLT Platform
+# Scans for accidentally committed secrets.
+# ============================================================================
+
+title = "Banking DLT Project — Secret Detection"
+
+[extend]
+# Extend the default gitleaks rules (which cover AWS, GCP, generic, etc.)
+useDefault = true
+
+[[rules]]
+id = "databricks-pat"
+description = "Databricks Personal Access Token"
+regex = '''dapi[a-f0-9]{32}'''
+tags = ["databricks", "token", "pat"]
+
+[[rules]]
+id = "databricks-oauth-secret"
+description = "Databricks OAuth client secret"
+regex = '''dose[a-f0-9]{32}'''
+tags = ["databricks", "oauth", "secret"]
+
+[[rules]]
+id = "azure-storage-key"
+description = "Azure Storage Account Key"
+regex = '''AccountKey=[A-Za-z0-9+/=]{88}'''
+tags = ["azure", "storage", "key"]
+
+[[rules]]
+id = "azure-sas-token"
+description = "Azure SAS token"
+regex = '''sig=[A-Za-z0-9%]+&se=\d{4}-\d{2}-\d{2}'''
+tags = ["azure", "sas"]
+
+[[rules]]
+id = "azure-connection-string"
+description = "Azure Storage connection string"
+regex = '''DefaultEndpointsProtocol=https;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{88}'''
+tags = ["azure", "storage", "connection-string"]
+
+[[rules]]
+id = "aadhaar-number"
+description = "Aadhaar-like number (12 digits, PII leak)"
+regex = '''\b[2-9]\d{3}\s?\d{4}\s?\d{4}\b'''
+tags = ["pii", "aadhaar", "dpdp"]
+# Note: this rule is aggressive; enable in a separate "PII scan" job if false positives occur
+
+[[rules]]
+id = "pan-number"
+description = "PAN card number (Indian tax ID)"
+regex = '''\b[A-Z]{5}[0-9]{4}[A-Z]\b'''
+tags = ["pii", "pan"]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API key pattern"
+regex = '''(?i)(api[_-]?key|apikey|secret[_-]?key)['"\s:=]+['"]?([A-Za-z0-9_\-]{24,})'''
+tags = ["generic", "api-key"]
+entropy = 4.0
+
+[[rules]]
+id = "private-key"
+description = "Private key file contents"
+regex = '''-----BEGIN (RSA|OPENSSH|DSA|EC|PGP) PRIVATE KEY'''
+tags = ["key", "private"]
+
+# ============================================================================
+# ALLOWLIST — safe patterns that look like secrets but aren't
+# ============================================================================
+[allowlist]
+description = "Global allowlist for known false positives"
+paths = [
+  '''.*\.md$''',                     # Documentation often contains examples
+  '''docs/.*''',                     # Docs folder
+  '''tests/.*\.py$''',               # Test files with dummy values
+  '''.*\.example$''',                # Template files
+  '''.*\.example\.tfvars$''',
+  '''backend\.tfvars\.example''',
+]
+
+# Specific false-positive strings
+regexTarget = "match"
+regexes = [
+  '''REPLACE_WITH.*''',
+  '''<your-.*>''',
+  '''xxxxx+''',
+  '''dummy[-_]?token''',
+  '''example\.com''',
+  '''test@example\.com''',
+  '''AKIAIOSFODNN7EXAMPLE''',        # AWS documentation example
+  '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',
+]
+
+
+
+
+---
+
+## 📄 File 14 (PATCH): `CHANGELOG.md`
+
+Add under `## [Unreleased]`:
+
+```markdown
+### Security
+- **Breaking:** CI/CD now uses Workload Identity Federation (WIF) — PATs removed
+- Databricks CLI pinned to `v0.231.0` with SHA256 verification (was `curl | sh`)
+- Terraform backend moved to Azure Storage with encryption, locking, and RBAC
+- Added gitleaks secret scanning (pre-commit + CI)
+- Added bandit Python SAST
+- Added pip-audit dependency scanning
+- Added checkov + trivy IaC scanning
+- Added GitHub CodeQL weekly scan
+- Added Dependabot for pip / actions / terraform
+- Added CODEOWNERS requiring review for security-sensitive paths
+- Added `.pre-commit-config.yaml` for local enforcement
+- `SECURITY.md` — responsible disclosure policy
+- `docs/TERRAFORM_STATE.md` — state security documentation
+- `docs/SECRET_MANAGEMENT.md` — secret lifecycle and rotation
+
+### Changed
+- `.azure-pipelines/azure-pipelines.yml` — full rewrite for WIF + supply chain security
+- Databricks auth: `azure-cli` (OIDC) instead of PAT

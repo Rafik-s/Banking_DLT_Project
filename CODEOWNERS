@@ -1,0 +1,28 @@
+# ============================================================================
+# CODEOWNERS — Automatic review requirements
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# ============================================================================
+
+# Default owner for everything
+*                           @Rafik-s
+
+# Security-sensitive paths — require InfoSec review
+src/schemas_and_security.py @Rafik-s
+src/silver_transformation.py @Rafik-s
+terraform/*.tf              @Rafik-s
+terraform/**/*.tf           @Rafik-s
+docs/SECURITY_BOUNDARY.md   @Rafik-s
+SECURITY.md                 @Rafik-s
+.gitleaks.toml              @Rafik-s
+
+# CI/CD
+.azure-pipelines/**         @Rafik-s
+.github/workflows/**        @Rafik-s
+
+# Pipeline configuration
+databricks.yml              @Rafik-s
+resources/**                @Rafik-s
+
+# Documentation
+*.md                        @Rafik-s
+docs/**                     @Rafik-s

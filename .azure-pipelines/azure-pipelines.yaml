@@ -1,54 +1,230 @@
-# Azure DevOps pipeline — validate + deploy DAB across Dev / QA / Prod
+# ============================================================================
+# AZURE PIPELINES — Banking DLT Platform
+#
+# Authentication: Workload Identity Federation (WIF) — NO PATs, NO SECRETS
+# Supply chain: Pinned Databricks CLI version + SHA256 verification
+# Security scans: Gitleaks, Bandit, pip-audit, Checkov, Trivy, DAB validate
+# ============================================================================
 
 trigger:
   branches:
-    include: [ main ]
+    include:
+      - main
+      - develop
+  paths:
+    exclude:
+      - '**.md'
+      - 'docs/**'
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
 
 parameters:
   - name: environment
+    displayName: 'Target environment'
+    type: string
     default: dev
-    values: [ dev, qa, prod ]
+    values:
+      - dev
+      - qa
+      - prod
 
 variables:
-  - group: databricks-$(environment)-secrets
+  # Databricks CLI — pinned version + checksum (from https://github.com/databricks/cli/releases)
+  - name: DATABRICKS_CLI_VERSION
+    value: '0.231.0'
+  - name: DATABRICKS_CLI_SHA256_LINUX_AMD64
+    value: 'a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4'  # REPLACE with real value
+
+  # Azure service connection (WIF-backed, no secret) — see docs/SECRET_MANAGEMENT.md
+  - name: AZURE_SERVICE_CONNECTION
+    value: 'sc-banking-databricks-wif'
+
+  # Terraform backend — remote state on Azure Storage (see terraform/backend.tf)
+  - name: TF_BACKEND_RG
+    value: 'rg-banking-tfstate-$(environment)'
+  - name: TF_BACKEND_SA
+    value: 'stbankingtfstate$(environment)'
+  - name: TF_BACKEND_CONTAINER
+    value: 'tfstate'
+  - name: TF_BACKEND_KEY
+    value: 'banking-dlt-$(environment).tfstate'
 
 stages:
+  # ==========================================================================
+  # STAGE 1 — SECURITY & STATIC ANALYSIS (fast, runs on every commit)
+  # ==========================================================================
+  - stage: SecurityScans
+    displayName: '1. Security & Static Analysis'
+    jobs:
+      - template: templates/security-scan.yml
+        parameters:
+          environment: ${{ parameters.environment }}
+
+  # ==========================================================================
+  # STAGE 2 — VALIDATE (DAB + Terraform)
+  # ==========================================================================
   - stage: Validate
+    displayName: '2. Validate Bundles & IaC'
+    dependsOn: SecurityScans
     jobs:
-      - job: BundleValidate
-        pool: { vmImage: ubuntu-latest }
+      - job: DABValidate
+        displayName: 'Validate Databricks Asset Bundle'
+        pool:
+          vmImage: ubuntu-latest
         steps:
-          - script: |
-              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
-            displayName: 'Install Databricks CLI'
+          - checkout: self
 
-          - script: |
-              databricks bundle validate -t $(environment)
+          - task: AzureCLI@2
+            displayName: 'Install pinned Databricks CLI'
+            inputs:
+              azureSubscription: $(AZURE_SERVICE_CONNECTION)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                CLI_VERSION="$(DATABRICKS_CLI_VERSION)"
+                EXPECTED_SHA="$(DATABRICKS_CLI_SHA256_LINUX_AMD64)"
+                URL="https://github.com/databricks/cli/releases/download/v${CLI_VERSION}/databricks_cli_${CLI_VERSION}_linux_amd64.zip"
+
+                echo "Downloading Databricks CLI v${CLI_VERSION}"
+                curl -fsSL -o /tmp/databricks.zip "${URL}"
+
+                echo "Verifying SHA256..."
+                ACTUAL_SHA=$(sha256sum /tmp/databricks.zip | awk '{print $1}')
+                if [ "${ACTUAL_SHA}" != "${EXPECTED_SHA}" ]; then
+                  echo "❌ Checksum mismatch!"
+                  echo "  expected: ${EXPECTED_SHA}"
+                  echo "  actual:   ${ACTUAL_SHA}"
+                  exit 1
+                fi
+
+                unzip -o /tmp/databricks.zip -d /usr/local/bin/
+                chmod +x /usr/local/bin/databricks
+                databricks --version
+
+          - task: AzureCLI@2
             displayName: 'Validate DAB for $(environment)'
-            env:
-              DATABRICKS_HOST:  $(DATABRICKS_HOST)
-              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+            inputs:
+              azureSubscription: $(AZURE_SERVICE_CONNECTION)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                # OIDC token → WIF → Entra SP → Databricks
+                DATABRICKS_HOST=$(az keyvault secret show \
+                  --vault-name "kv-banking-$(environment)" \
+                  --name "databricks-host" \
+                  --query value -o tsv)
 
-  - stage: Deploy
-    dependsOn: Validate
-    jobs:
-      - job: BundleDeploy
-        pool: { vmImage: ubuntu-latest }
+                export DATABRICKS_HOST
+                export DATABRICKS_AUTH_TYPE=azure-cli
+                export DATABRICKS_AZURE_RESOURCE_ID=$(az keyvault secret show \
+                  --vault-name "kv-banking-$(environment)" \
+                  --name "databricks-resource-id" \
+                  --query value -o tsv)
+
+                databricks bundle validate -t $(environment)
+
+      - job: TerraformValidate
+        displayName: 'Validate Terraform'
+        pool:
+          vmImage: ubuntu-latest
         steps:
-          - script: |
-              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
-            displayName: 'Install Databricks CLI'
+          - checkout: self
 
           - script: |
-              databricks bundle deploy -t $(environment)
-            displayName: 'Deploy DAB to $(environment)'
-            env:
-              DATABRICKS_HOST:  $(DATABRICKS_HOST)
-              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+              curl -fsSL https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip -o /tmp/tf.zip
+              echo "a1b2c3... /tmp/tf.zip" | sha256sum -c -   # REPLACE with real checksum
+              unzip /tmp/tf.zip -d /usr/local/bin/
+              terraform --version
+            displayName: 'Install pinned Terraform'
 
-          - script: |
-              databricks bundle run -t $(environment) banking_medallion_dlt_pipeline
-            displayName: 'Trigger DLT pipeline'
-            env:
-              DATABRICKS_HOST:  $(DATABRICKS_HOST)
-              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+          - script: terraform -chdir=terraform fmt -check -recursive
+            displayName: 'Terraform fmt check'
+
+          - script: terraform -chdir=terraform init -backend=false
+            displayName: 'Terraform init (no backend)'
+
+          - script: terraform -chdir=terraform validate
+            displayName: 'Terraform validate'
+
+  # ==========================================================================
+  # STAGE 3 — DEPLOY (dev auto, qa/prod gated)
+  # ==========================================================================
+  - stage: Deploy
+    displayName: '3. Deploy'
+    dependsOn: Validate
+    condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.SourceBranch'], 'refs/heads/develop')))
+    jobs:
+      - deployment: DeployBundle
+        displayName: 'Deploy to ${{ parameters.environment }}'
+        environment: '${{ parameters.environment }}'   # Azure DevOps environment (approval gates apply)
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: AzureCLI@2
+                  displayName: 'Install pinned Databricks CLI'
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      CLI_VERSION="$(DATABRICKS_CLI_VERSION)"
+                      EXPECTED_SHA="$(DATABRICKS_CLI_SHA256_LINUX_AMD64)"
+                      URL="https://github.com/databricks/cli/releases/download/v${CLI_VERSION}/databricks_cli_${CLI_VERSION}_linux_amd64.zip"
+                      curl -fsSL -o /tmp/databricks.zip "${URL}"
+                      ACTUAL_SHA=$(sha256sum /tmp/databricks.zip | awk '{print $1}')
+                      [ "${ACTUAL_SHA}" = "${EXPECTED_SHA}" ] || { echo "Checksum mismatch"; exit 1; }
+                      unzip -o /tmp/databricks.zip -d /usr/local/bin/
+                      chmod +x /usr/local/bin/databricks
+
+                - task: AzureCLI@2
+                  displayName: 'Deploy bundle to ${{ parameters.environment }}'
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      DATABRICKS_HOST=$(az keyvault secret show \
+                        --vault-name "kv-banking-${{ parameters.environment }}" \
+                        --name "databricks-host" \
+                        --query value -o tsv)
+                      export DATABRICKS_HOST
+                      export DATABRICKS_AUTH_TYPE=azure-cli
+                      export DATABRICKS_AZURE_RESOURCE_ID=$(az keyvault secret show \
+                        --vault-name "kv-banking-${{ parameters.environment }}" \
+                        --name "databricks-resource-id" \
+                        --query value -o tsv)
+
+                      databricks bundle deploy -t ${{ parameters.environment }}
+
+                - task: AzureCLI@2
+                  displayName: 'Run pipeline'
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      export DATABRICKS_HOST=$(az keyvault secret show \
+                        --vault-name "kv-banking-${{ parameters.environment }}" \
+                        --name "databricks-host" \
+                        --query value -o tsv)
+                      export DATABRICKS_AUTH_TYPE=azure-cli
+                      export DATABRICKS_AZURE_RESOURCE_ID=$(az keyvault secret show \
+                        --vault-name "kv-banking-${{ parameters.environment }}" \
+                        --name "databricks-resource-id" \
+                        --query value -o tsv)
+
+                      databricks bundle run -t ${{ parameters.environment }} banking_medallion_dlt_pipeline

@@ -1,0 +1,155 @@
+# ============================================================================
+# REUSABLE SECURITY SCAN TEMPLATE
+# Runs: gitleaks, bandit, pip-audit, checkov, trivy
+# ============================================================================
+
+parameters:
+  - name: environment
+    type: string
+    default: dev
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 1. SECRET SCAN — gitleaks
+  # --------------------------------------------------------------------------
+  - job: Gitleaks
+    displayName: 'Secret Scan (gitleaks)'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+        fetchDepth: 0   # gitleaks scans full history
+
+      - script: |
+          set -euo pipefail
+          GITLEAKS_VERSION="8.18.4"
+          GITLEAKS_SHA256="a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4"   # REPLACE
+          URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o /tmp/gitleaks.tar.gz "${URL}"
+          ACTUAL=$(sha256sum /tmp/gitleaks.tar.gz | awk '{print $1}')
+          [ "${ACTUAL}" = "${GITLEAKS_SHA256}" ] || { echo "❌ gitleaks checksum mismatch"; exit 1; }
+          tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin/
+        displayName: 'Install pinned gitleaks'
+
+      - script: |
+          gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --report-format sarif \
+            --report-path gitleaks-report.sarif \
+            --verbose \
+            --exit-code 1
+        displayName: 'Run gitleaks'
+        continueOnError: false
+
+      - task: PublishBuildArtifacts@1
+        condition: always()
+        inputs:
+          pathToPublish: gitleaks-report.sarif
+          artifactName: gitleaks-report
+
+  # --------------------------------------------------------------------------
+  # 2. PYTHON SAST — bandit
+  # --------------------------------------------------------------------------
+  - job: Bandit
+    displayName: 'Python SAST (bandit)'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+      - script: pip install bandit==1.7.7
+        displayName: 'Install bandit'
+      - script: |
+          bandit -r src/ \
+            -ll \
+            -f json \
+            -o bandit-report.json \
+            || (cat bandit-report.json && exit 1)
+        displayName: 'Run bandit (medium+ severity)'
+        continueOnError: false
+      - task: PublishBuildArtifacts@1
+        condition: always()
+        inputs:
+          pathToPublish: bandit-report.json
+          artifactName: bandit-report
+
+  # --------------------------------------------------------------------------
+  # 3. DEPENDENCY SCAN — pip-audit
+  # --------------------------------------------------------------------------
+  - job: PipAudit
+    displayName: 'Dependency Scan (pip-audit)'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+      - script: pip install pip-audit==2.7.2
+        displayName: 'Install pip-audit'
+      - script: |
+          if [ -f requirements.txt ]; then
+            pip-audit -r requirements.txt --strict --desc on
+          else
+            echo "No requirements.txt — skipping"
+          fi
+        displayName: 'Run pip-audit'
+        continueOnError: false
+
+  # --------------------------------------------------------------------------
+  # 4. IAC SCAN — checkov
+  # --------------------------------------------------------------------------
+  - job: Checkov
+    displayName: 'IaC Scan (checkov)'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+      - script: pip install checkov==3.2.3
+        displayName: 'Install checkov'
+      - script: |
+          checkov \
+            --directory terraform/ \
+            --framework terraform \
+            --output sarif \
+            --output-file-path checkov-report.sarif \
+            --soft-fail
+        displayName: 'Run checkov on Terraform'
+      - task: PublishBuildArtifacts@1
+        condition: always()
+        inputs:
+          pathToPublish: checkov-report.sarif
+          artifactName: checkov-report
+
+  # --------------------------------------------------------------------------
+  # 5. FILESYSTEM VULN SCAN — trivy
+  # --------------------------------------------------------------------------
+  - job: Trivy
+    displayName: 'Filesystem Scan (trivy)'
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+      - checkout: self
+      - script: |
+          set -euo pipefail
+          TRIVY_VERSION="0.50.1"
+          TRIVY_SHA256="a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4"   # REPLACE
+          URL="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSL -o /tmp/trivy.tar.gz "${URL}"
+          ACTUAL=$(sha256sum /tmp/trivy.tar.gz | awk '{print $1}')
+          [ "${ACTUAL}" = "${TRIVY_SHA256}" ] || { echo "❌ trivy checksum mismatch"; exit 1; }
+          tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin/
+        displayName: 'Install pinned trivy'
+
+      - script: |
+          trivy fs \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --format sarif \
+            --output trivy-report.sarif \
+            .
+        displayName: 'Run trivy filesystem scan'
+        continueOnError: false
+
+      - task: PublishBuildArtifacts@1
+        condition: always()
+        inputs:
+          pathToPublish: trivy-report.sarif
+          artifactName: trivy-report
