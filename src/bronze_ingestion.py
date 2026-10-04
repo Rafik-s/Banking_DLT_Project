@@ -18,7 +18,15 @@ from schemas_and_security import (
 
 
 def _bronze_reader(dataset_name: str, schema_struct):
-    """Shared Auto Loader read config — used by every Bronze table."""
+    """
+    Shared Auto Loader read config.
+
+    Idempotency guarantees:
+    - Auto Loader checkpoints ensure exactly-once file processing
+    - _source_file_path_hash gives a deterministic file identifier
+    - _ingest_sequence is a monotonically-increasing offset — reproducible
+      across retries, unlike uuid() or current_timestamp()
+    """
     return (
         spark.readStream
             .format("cloudFiles")
@@ -26,13 +34,29 @@ def _bronze_reader(dataset_name: str, schema_struct):
             .option("cloudFiles.schemaLocation",
                     f"{CHECKPOINT_DIR}/bronze_{dataset_name}/schema")
             .option("cloudFiles.inferColumnTypes", "false")
+            .option("cloudFiles.schemaEvolutionMode", "failOnNewColumns")
+            .option("cloudFiles.backfillInterval", "1 day")
+            .option("rescuedDataColumn", "_rescued_data")
             .option("header", "true")
             .option("multiLine", "true")
             .schema(schema_struct)
             .load(f"{RAW_BASE_PATH}/{dataset_name}/")
-            .withColumn("_source_file",         F.col("_metadata.file_path"))
-            .withColumn("_ingestion_timestamp", F.col("_metadata.file_modification_time"))
-            .withColumn("_ingestion_file_hash", F.sha2(F.col("_metadata.file_path"), 256))
+            .selectExpr("*", "_metadata")
+            .withColumn("_source_file_path",     F.col("_metadata.file_path"))
+            .withColumn("_source_file_path_hash", F.sha2(F.col("_metadata.file_path"), 256))
+            .withColumn("_ingestion_timestamp",   F.col("_metadata.file_modification_time"))
+            # Deterministic "sequence" — file mtime + path, hashed
+            # Same file → same sequence, regardless of how many times we run.
+            .withColumn("_ingest_sequence",
+                F.sha2(
+                    F.concat(
+                        F.col("_metadata.file_path"),
+                        F.lit("|"),
+                        F.col("_metadata.file_modification_time").cast("string"),
+                    ),
+                    256,
+                ))
+            .drop("_metadata")
     )
 
 

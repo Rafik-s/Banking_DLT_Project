@@ -87,6 +87,10 @@ TRANSACTIONS_SCHEMA = StructType([
     StructField("transaction_status",      StringType(),   True),
     StructField("iso_8583_response_code",  StringType(),   True),
     StructField("transaction_timestamp",   TimestampType(), True),
+    # Idempotency columns (Workstream 2)
+    StructField("source_system",           StringType(),   True),   # e.g. CORE_BANKING, UPI, NEFT
+    StructField("event_version",           IntegerType(),  True),   # CDC sequence; default 1
+
 ])
 
 BRANCHES_SCHEMA = StructType([

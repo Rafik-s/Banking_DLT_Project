@@ -184,16 +184,19 @@ def silver_accounts():
 
 
 # ===========================================================================
-# SILVER TRANSACTIONS (Watermarked, deduplicated)
+# SILVER TRANSACTIONS (Watermarked, business-idempotent, late-data aware)
 # ===========================================================================
 @dlt.table(
     name=f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions",
-    comment="Cleansed transactions — 24h event-time watermark, deduped within window.",
+    comment="Cleansed transactions — 24h event-time watermark, "
+            "business-idempotency key (transaction_id + source_system + event_version).",
     table_properties=SILVER_PROPS,
 )
 @dlt.expect_or_fail("valid_transaction_id",        "transaction_id IS NOT NULL")
 @dlt.expect_or_fail("valid_account_fk",            "account_id IS NOT NULL")
 @dlt.expect_or_fail("valid_transaction_timestamp", "transaction_timestamp IS NOT NULL")
+@dlt.expect_or_fail("valid_idempotency_key",
+    "transaction_id IS NOT NULL AND source_system IS NOT NULL AND event_version IS NOT NULL")
 @dlt.expect_or_drop("valid_amount_range",
     "amount > 0.00 AND amount <= 10000000.00")
 @dlt.expect_or_drop("valid_db_cr_indicator",
@@ -202,7 +205,17 @@ def silver_transactions():
     return (
         dlt.read_stream(f"{CATALOG}.{BRONZE_SCHEMA}.bronze_transactions")
             .withWatermark("transaction_timestamp", "24 hours")
-            .dropDuplicatesWithinWatermark(["transaction_id"])
+            # Business idempotency: dedupe within watermark window on the
+            # composite key, not just transaction_id.
+            .dropDuplicatesWithinWatermark(
+                ["transaction_id", "source_system", "event_version"]
+            )
+            # Coalesce source_system + event_version so idempotency works even
+            # if the source CSV omits them (defaults are deterministic).
+            .withColumn("source_system",
+                F.coalesce(F.upper(F.trim("source_system")), F.lit("UNKNOWN")))
+            .withColumn("event_version",
+                F.coalesce(F.col("event_version").cast("integer"), F.lit(1)))
             .withColumn("transaction_type", F.upper(F.trim("transaction_type")))
             .withColumn("channel",          F.upper(F.trim("channel")))
             .withColumn("iso_8583_response_code",

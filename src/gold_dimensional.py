@@ -129,31 +129,81 @@ def dim_date():
 
 
 # ===========================================================================
-# FACT TRANSACTIONS — Liquid Clustered
+# FACT TRANSACTIONS (Historical / as-of dimension joins)
 # ===========================================================================
 @dlt.table(
     name=f"{CATALOG}.{GOLD_SCHEMA}.fact_transactions",
-    comment="Core banking transaction fact table.",
+    comment="Core banking transaction fact — joined to dimension version "
+            "valid at transaction time (BCBS 239 as-of-date correctness).",
     table_properties=GOLD_PROPS_CDF,
     cluster_by=["account_id", "date_key"],
 )
 def fact_transactions():
-    txn  = dlt.read_stream(f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions_validated")
-    acc  = dlt.read(f"{CATALOG}.{GOLD_SCHEMA}.dim_accounts").filter("__END_AT IS NULL")
-    cust = dlt.read(f"{CATALOG}.{GOLD_SCHEMA}.dim_customers").filter("__END_AT IS NULL")
+    txn = dlt.read_stream(f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions_validated").alias("t")
+
+    # Historical dimension snapshots (all SCD2 versions)
+    acc_all = (
+        dlt.read(f"{CATALOG}.{GOLD_SCHEMA}.dim_accounts")
+            .select(
+                "account_id",
+                "customer_id",
+                F.col("__START_AT").alias("acc_start_at"),
+                F.col("__END_AT").alias("acc_end_at"),
+            )
+            .alias("a")
+    )
+    cust_all = (
+        dlt.read(f"{CATALOG}.{GOLD_SCHEMA}.dim_customers")
+            .select(
+                "customer_id",
+                F.col("__START_AT").alias("cust_start_at"),
+                F.col("__END_AT").alias("cust_end_at"),
+            )
+            .alias("c")
+    )
 
     return (
-        txn.alias("t")
-            .join(acc.alias("a"),  F.col("t.account_id")  == F.col("a.account_id"),  "left")
-            .join(cust.alias("c"), F.col("t.customer_id") == F.col("c.customer_id"), "left")
+        txn
+            # Join to the account version valid at transaction time
+            .join(
+                acc_all,
+                F.expr("""
+                    t.account_id = a.account_id
+                    AND t.transaction_timestamp >= a.acc_start_at
+                    AND t.transaction_timestamp <  a.acc_end_at
+                """),
+                "left",
+            )
+            # Join to the customer version valid at transaction time
+            .join(
+                cust_all,
+                F.expr("""
+                    t.customer_id = c.customer_id
+                    AND t.transaction_timestamp >= c.cust_start_at
+                    AND t.transaction_timestamp <  c.cust_end_at
+                """),
+                "left",
+            )
             .select(
                 F.col("t.transaction_id"),
                 F.col("a.account_id"),
                 F.col("c.customer_id"),
-                F.col("a.__START_AT").alias("account_sk"),
-                F.col("c.__START_AT").alias("customer_sk"),
-                F.date_format(F.col("t.transaction_timestamp"), "yyyyMMdd")
-                    .alias("date_key"),
+                F.col("t.source_system"),
+                F.col("t.event_version"),
+                # SCD2 version keys
+                F.sha2(
+                    F.concat_ws("||",
+                        F.col("a.account_id"),
+                        F.col("a.acc_start_at").cast("string"),
+                    ), 256
+                ).alias("account_sk"),
+                F.sha2(
+                    F.concat_ws("||",
+                        F.col("c.customer_id"),
+                        F.col("c.cust_start_at").cast("string"),
+                    ), 256
+                ).alias("customer_sk"),
+                F.date_format(F.col("t.transaction_timestamp"), "yyyyMMdd").alias("date_key"),
                 F.col("t.transaction_type"),
                 F.col("t.channel"),
                 F.col("t.amount"),

@@ -17,3 +17,30 @@
 - README framing: "production-grade Tier-1 bank" → "enterprise-grade reference implementation"
 - Added `## ⚠️ Disclaimer` section to README
 - `_record_updated_at` added to `silver_branches`, `silver_credit_cards`, `silver_loans`, `silver_kyc_documents`, `silver_fraud_alerts`, `silver_atm_transactions` (Workstream 2 prep)
+
+
+---
+
+## 📄 File 7 (PATCH): `CHANGELOG.md`
+
+Add under `## [Unreleased]`:
+
+```markdown
+### Fixed
+- **Critical:** Late-arriving transactions are no longer silently dropped by watermark — routed to `silver_transactions_late`
+- **Critical:** `fact_transactions` now joins to dimension version valid at transaction time (BCBS 239 as-of-date correctness)
+- **Critical:** SCD2 sequencing now consistent across all dimensions via `_record_updated_at` (source-event time)
+
+### Added
+- `source_system` and `event_version` columns in `TRANSACTIONS_SCHEMA`
+- Business idempotency key: `(transaction_id, source_system, event_version)`
+- `_ingest_sequence` in Bronze — deterministic replacement for `uuid()`
+- `_source_file_path` column in Bronze for debugging
+- `silver_transactions_late` quarantine table
+- `docs/IDEMPOTENCY.md` — pattern documentation
+
+### Changed
+- Renamed `_ingestion_file_hash` → `_source_file_path_hash` (accurate naming)
+- `cloudFiles.schemaEvolutionMode` set to `failOnNewColumns` (fail loudly on drift)
+- `rescuedDataColumn` enabled — captures schema-mismatched rows
+- `cloudFiles.backfillInterval` set to `1 day` for late file detection
