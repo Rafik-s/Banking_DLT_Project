@@ -8,7 +8,7 @@ This document explains the Shields.io badges used at the top of `README.md`, why
 
 ## 📖 Table of Contents
 
-1. [What Are These Badges?](#-what-are-these-badges)
+1. [What Are These Badges?](#-what-are-these-badges).
 2. [Anatomy of a Badge](#-anatomy-of-a-badge)
 3. [Badge-by-Badge Breakdown](#-badge-by-badge-breakdown)
 4. [Static vs. Dynamic Badges](#-static-vs-dynamic-badges)
