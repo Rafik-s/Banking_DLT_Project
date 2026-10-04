@@ -1,0 +1,30 @@
+Pre-Deployment Checklist
+Run through these before your first databricks bundle deploy -t dev:
+
+Verify catalog managed location — serverless DLT needs this:
+
+sql
+DESCRIBE CATALOG banking_dev_catalog;
+-- `Location` must be non-null. If null, run:
+ALTER CATALOG banking_dev_catalog SET MANAGED LOCATION 'abfss://metastore@stbankingdev001.dfs.core.windows.net/';
+Provision the secret scope + salt — the pipeline will fail immediately if pii_hmac can't reach secret('banking-pii-dev', 'salt'):
+
+bash
+terraform -chdir=terraform apply -var-file=dev.tfvars
+Create the security mapping table (empty is fine to start):
+
+sql
+CREATE TABLE IF NOT EXISTS banking_dev_catalog.security.user_branch_mapping (
+    user_email STRING,
+    mapped_branch_id STRING
+);
+
+Verify Python module names have no leading digits:
+
+bash
+ls src/
+# schemas_and_security.py, bronze_ingestion.py, ...
+# NOT 00_schemas_and_security.py
+Confirm DBR / channel supports dropDuplicatesWithinWatermark — pipeline YAML sets channel: CURRENT, which satisfies this. Verify in workspace settings.
+
+Run databricks bundle validate -t dev before deploy — fails fast on YAML / variable errors.

@@ -1,0 +1,37 @@
+bundle:
+  name: banking_dlt_project
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: "Unity Catalog catalog name (env-specific)"
+  raw_path:
+    description: "ADLS Gen2 raw container path"
+  checkpoint_path:
+    description: "ADLS Gen2 checkpoint container path"
+  pii_secret_scope:
+    description: "Databricks secret scope name for PII HMAC salt"
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://adb-dev-instance.azuredatabricks.net
+    variables:
+      catalog: banking_dev_catalog
+      raw_path: abfss://raw@stbankingdev001.dfs.core.windows.net
+      checkpoint_path: abfss://checkpoints@stbankingdev001.dfs.core.windows.net
+      pii_secret_scope: banking-pii-dev
+
+  prod:
+    mode: production
+    workspace:
+      host: https://adb-prod-instance.azuredatabricks.net
+    variables:
+      catalog: banking_prod_catalog
+      raw_path: abfss://raw@stbankingprod001.dfs.core.windows.net
+      checkpoint_path: abfss://checkpoints@stbankingprod001.dfs.core.windows.net
+      pii_secret_scope: banking-pii-prod

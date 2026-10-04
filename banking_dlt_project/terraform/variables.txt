@@ -1,0 +1,7 @@
+variable "env"              { type = string }
+variable "catalog_name"     { type = string }
+variable "sql_warehouse_id" { type = string }
+variable "pii_salt" {
+  type      = string
+  sensitive = true
+}

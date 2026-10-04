@@ -1,0 +1,13 @@
+# What We Built — In Brief
+
+A **production-grade banking data platform** on Azure Databricks that ingests 10 core banking datasets (customers, accounts, transactions, loans, cards, KYC, fraud, ATM, branches, employees) through a **Medallion Architecture** — raw Bronze → cleansed Silver → business-ready Gold.
+
+It uses **Delta Live Tables** for declarative pipelines, **Auto Loader** for idempotent streaming ingestion, **SCD Type 2** for historical tracking, and **DLT expectations** to enforce data quality at every layer.
+
+**Unity Catalog** governs everything — PII is HMAC-hashed via secret-backed functions, sensitive columns are masked, and branch-level row filters restrict access for compliance.
+
+The whole thing is deployed as a **Databricks Asset Bundle** with **Terraform** provisioning UC security, **Azure DevOps** handling CI/CD across Dev/QA/Prod, and **nightly workflows** running OPTIMIZE/VACUUM maintenance.
+
+We also produced a full **README**, a **SUPPORT_README** explaining the badge/security decisions, and a **DQ observability layer** that surfaces data quality metrics and alerts on-call when pass-rates drop.
+
+**Bottom line:** It's a bank-audit-ready foundation — DPDP, PCI-DSS, and RBI aligned — that can go to production with only minor operational hardening.

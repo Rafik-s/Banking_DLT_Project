@@ -1,0 +1,42 @@
+# ============================================================================
+# GIT ATTRIBUTES — line ending normalization & binary handling
+# ============================================================================
+
+# Default: normalize to LF on commit, checkout as-is
+* text=auto
+
+# Explicit text files
+*.py      text diff=python
+*.md      text diff=markdown
+*.yml     text
+*.yaml    text
+*.json    text
+*.toml    text
+*.tf      text
+*.tfvars  text
+*.sql     text
+*.sh      text eol=lf
+*.ps1     text eol=crlf
+
+# Explicit binary files (never try to diff)
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.pdf     binary
+*.zip     binary
+*.gz      binary
+*.whl     binary
+*.so      binary
+*.dll     binary
+*.exe     binary
+
+# Lock files — do not merge, regenerate
+poetry.lock      merge=binary
+Pipfile.lock     merge=binary
+package-lock.json merge=binary
+.terraform.lock.hcl merge=binary
+
+# Databricks notebooks — treat as text but don't diff (they're JSON)
+*.ipynb   text eol=lf -diff

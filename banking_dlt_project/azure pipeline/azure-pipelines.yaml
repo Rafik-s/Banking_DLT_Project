@@ -1,0 +1,54 @@
+# Azure DevOps pipeline — validate + deploy DAB across Dev / QA / Prod
+
+trigger:
+  branches:
+    include: [ main ]
+
+parameters:
+  - name: environment
+    default: dev
+    values: [ dev, qa, prod ]
+
+variables:
+  - group: databricks-$(environment)-secrets
+
+stages:
+  - stage: Validate
+    jobs:
+      - job: BundleValidate
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - script: |
+              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+            displayName: 'Install Databricks CLI'
+
+          - script: |
+              databricks bundle validate -t $(environment)
+            displayName: 'Validate DAB for $(environment)'
+            env:
+              DATABRICKS_HOST:  $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+  - stage: Deploy
+    dependsOn: Validate
+    jobs:
+      - job: BundleDeploy
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - script: |
+              curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+            displayName: 'Install Databricks CLI'
+
+          - script: |
+              databricks bundle deploy -t $(environment)
+            displayName: 'Deploy DAB to $(environment)'
+            env:
+              DATABRICKS_HOST:  $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+          - script: |
+              databricks bundle run -t $(environment) banking_medallion_dlt_pipeline
+            displayName: 'Trigger DLT pipeline'
+            env:
+              DATABRICKS_HOST:  $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)

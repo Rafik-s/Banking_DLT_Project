@@ -1,0 +1,63 @@
+resources:
+  pipelines:
+    banking_medallion_dlt_pipeline:
+      name: ${bundle.target}-banking-medallion-pipeline
+      catalog: ${var.catalog}
+      schema: ${var.silver_schema}          # default schema; tables override via 3-part names
+      continuous: false
+      development: false
+      channel: CURRENT                       # requires DBR 14.3+ for dropDuplicatesWithinWatermark
+      serverless: true
+      # NOTE: On serverless DLT, `photon` and `edition` are implicit.
+      # If you ever set `serverless: false`, you MUST uncomment the following:
+      # photon: true
+      # edition: ADVANCED
+
+      configuration:
+        vars.catalog:            ${var.catalog}
+        vars.bronze_schema:      raw_bronze
+        vars.silver_schema:      clean_silver
+        vars.gold_schema:        cur_gold
+        vars.raw_base_path:      ${var.raw_path}
+        vars.checkpoint_dir:     ${var.checkpoint_path}
+        vars.pii_secret_scope:   ${var.pii_secret_scope}
+        vars.pii_secret_key:     salt
+
+      libraries:
+        - notebook: { path: ../src/schemas_and_security.py }
+        - notebook: { path: ../src/bronze_ingestion.py }
+        - notebook: { path: ../src/silver_transformation.py }
+        - notebook: { path: ../src/gold_dimensional.py }
+
+  jobs:
+    banking_maintenance_workflow:
+      name: ${bundle.target}-banking-table-maintenance
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: "Asia/Kolkata"
+
+      tasks:
+        - task_key: optimize_vacuum_gold
+          notebook_task:
+            notebook_path: ../src/maintenance.py
+            base_parameters:
+              catalog: ${var.catalog}
+              gold_schema: cur_gold
+            source: WORKSPACE
+          # Retry once on transient failures
+          max_retries: 1
+          min_retry_interval_millis: 300000
+
+    banking_dq_observability:
+      name: ${bundle.target}-banking-dq-observability
+      schedule:
+        quartz_cron_expression: "0 30 2 * * ?"
+        timezone_id: "Asia/Kolkata"
+
+      tasks:
+        - task_key: dq_metrics_dashboard
+          sql_task:
+            warehouse_id: 1a2b3c4d5e6f
+            file:
+              path: ../sql/dq_alerts.sql
+              source: WORKSPACE
