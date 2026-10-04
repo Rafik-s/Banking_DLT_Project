@@ -1,0 +1,109 @@
+# ============================================================================
+# DATA CONTRACT — customers
+# Source: Core Banking (Finacle)
+# ============================================================================
+dataset: customers
+version: 1.0.0
+owner:
+  team: Core Banking Platform
+  email: core-banking-platform@bank.example
+source_system: CORE_BANKING
+classification: restricted
+
+schema:
+  - name: customer_id
+    type: string
+    nullable: false
+    description: "Bank-assigned customer identifier (CIF)"
+    pii: false
+    pci: false
+
+  - name: full_name
+    type: string
+    nullable: true
+    description: "Customer name as per KYC"
+    pii: true
+    pci: false
+
+  - name: customer_type
+    type: string
+    nullable: true
+    enum: [INDIVIDUAL, JOINT, CORPORATE, TRUST]
+    pii: false
+
+  - name: customer_segment
+    type: string
+    nullable: true
+    enum: [RETAIL, PREMIUM, PRIVATE, SME, CORPORATE]
+    pii: false
+
+  - name: aadhaar_number
+    type: string
+    nullable: true
+    description: "12-digit Aadhaar (stored only in Bronze; HMAC in Silver)"
+    pii: true
+    dpdp: restricted
+
+  - name: pan_number
+    type: string
+    nullable: true
+    description: "10-char PAN"
+    pii: true
+    dpdp: restricted
+
+  - name: phone
+    type: string
+    nullable: true
+    pii: true
+
+  - name: email
+    type: string
+    nullable: true
+    pii: true
+
+  - name: city
+    type: string
+    nullable: true
+
+  - name: state
+    type: string
+    nullable: true
+
+  - name: pincode
+    type: string
+    nullable: true
+
+  - name: kyc_status
+    type: string
+    nullable: true
+    enum: [VERIFIED, PENDING_REKYC, REJECTED, IN_PROGRESS]
+
+  - name: customer_status
+    type: string
+    nullable: true
+    enum: [ACTIVE, DORMANT, CLOSED]
+
+  - name: last_modified_date
+    type: timestamp
+    nullable: true
+    description: "Source-system modification timestamp (used for SCD2 sequence_by)"
+
+primary_key: [customer_id]
+event_time_column: last_modified_date
+allowed_lateness_hours: 168   # Customers rarely update; 7-day window
+
+sla:
+  frequency: daily
+  expected_volume: "~10K rows/day"
+
+consumers:
+  - silver_customers
+  - dim_customers
+  - fact_transactions
+  - fact_loans
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering

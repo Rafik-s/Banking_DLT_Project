@@ -1,0 +1,40 @@
+dataset: loans
+version: 1.0.0
+owner:
+  team: Lending Platform
+  email: lending-platform@bank.example
+source_system: LOAN_ORIGINATION
+classification: confidential
+
+schema:
+  - { name: loan_id,                type: string,  nullable: false }
+  - { name: customer_id,            type: string,  nullable: false }
+  - { name: branch_id,              type: string,  nullable: true  }
+  - { name: loan_type,              type: string,  nullable: true, enum: [HOME, AUTO, PERSONAL, EDUCATION, BUSINESS, GOLD] }
+  - { name: sanctioned_amount,      type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: emi_amount,             type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: outstanding_principal,  type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: interest_rate,          type: decimal, precision: 5, scale: 2, nullable: true }
+  - { name: tenure_months,          type: integer, nullable: true }
+  - { name: dpd,                    type: integer, nullable: true }
+  - { name: loan_status,            type: string,  nullable: true, enum: [ACTIVE, CLOSED, WRITTEN_OFF, NPA] }
+  - { name: disbursement_date,      type: date,    nullable: true }
+
+primary_key: [loan_id]
+event_time_column: disbursement_date
+allowed_lateness_hours: 168
+
+sla:
+  frequency: daily
+  expected_volume: "~100K rows/day"
+
+consumers:
+  - silver_loans
+  - fact_loans
+  - reconciliation_results
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering

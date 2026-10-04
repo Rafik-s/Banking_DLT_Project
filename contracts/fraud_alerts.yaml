@@ -1,0 +1,38 @@
+dataset: fraud_alerts
+version: 1.0.0
+owner:
+  team: Fraud Operations
+  email: fraud-ops@bank.example
+source_system: FRAUD_ENGINE
+classification: confidential
+
+schema:
+  - { name: alert_id,                  type: string,  nullable: false }
+  - { name: transaction_id,            type: string,  nullable: true  }
+  - { name: customer_id,               type: string,  nullable: true  }
+  - { name: card_id,                   type: string,  nullable: true  }
+  - { name: alert_type,                type: string,  nullable: true, enum: [VELOCITY, GEO_ANOMALY, AMOUNT_ANOMALY, BLACKLIST, MANUAL] }
+  - { name: risk_score,                type: integer, nullable: true }
+  - { name: risk_level,                type: string,  nullable: true, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+  - { name: resolution_status,         type: string,  nullable: true, enum: [OPEN, RESOLVED, FALSE_POSITIVE, ESCALATED] }
+  - { name: action_taken,              type: string,  nullable: true }
+  - { name: investigator_employee_id,  type: string,  nullable: true }
+  - { name: alert_timestamp,           type: timestamp, nullable: true }
+
+primary_key: [alert_id]
+event_time_column: alert_timestamp
+allowed_lateness_hours: 168
+
+sla:
+  frequency: realtime
+  expected_volume: "~1K rows/day"
+
+consumers:
+  - silver_fraud_alerts
+  - fact_fraud_alerts
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering

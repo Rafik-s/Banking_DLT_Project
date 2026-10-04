@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "banking-dlt-project"
+version = "1.0.0"
+description = "Enterprise Banking Core Data Platform"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "Proprietary" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".azure-pipelines", "terraform"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]   # line length handled by black
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]   # allow asserts in tests
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: fast, no external dependencies",
+    "integration: requires Databricks workspace",
+    "e2e: end-to-end pipeline test",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "*/__pycache__/*"]

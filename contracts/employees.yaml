@@ -1,0 +1,36 @@
+dataset: employees
+version: 1.0.0
+owner:
+  team: HR Platform
+  email: hr-platform@bank.example
+source_system: HRMS
+classification: restricted
+
+schema:
+  - { name: employee_id,       type: string,  nullable: false }
+  - { name: branch_id,         type: string,  nullable: true  }
+  - { name: full_name,         type: string,  nullable: true, pii: true }
+  - { name: department,        type: string,  nullable: true, enum: [RETAIL_BANKING, LOANS, FRAUD_OPS, COMPLIANCE, IT] }
+  - { name: role,              type: string,  nullable: true }
+  - { name: salary_annual,     type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: email,             type: string,  nullable: true, pii: true }
+  - { name: phone,             type: string,  nullable: true, pii: true }
+  - { name: hire_date,         type: date,    nullable: true }
+  - { name: employee_status,   type: string,  nullable: true, enum: [ACTIVE, ON_LEAVE, TERMINATED] }
+
+primary_key: [employee_id]
+event_time_column: hire_date
+allowed_lateness_hours: 720
+
+sla:
+  frequency: weekly
+  expected_volume: "~100 rows/week"
+
+consumers:
+  - silver_employees
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering

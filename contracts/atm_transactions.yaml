@@ -1,0 +1,36 @@
+dataset: atm_transactions
+version: 1.0.0
+owner:
+  team: ATM Operations
+  email: atm-ops@bank.example
+source_system: ATM_SWITCH
+classification: confidential
+
+schema:
+  - { name: atm_tx_id,             type: string,  nullable: false }
+  - { name: atm_id,                type: string,  nullable: true  }
+  - { name: card_id,               type: string,  nullable: true  }
+  - { name: account_id,            type: string,  nullable: true  }
+  - { name: transaction_type,      type: string,  nullable: true, enum: [WITHDRAWAL, BALANCE_INQUIRY, MINI_STATEMENT, DEPOSIT, TRANSFER] }
+  - { name: amount,                type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: surcharge_fee,         type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: response_code,         type: string,  nullable: true }
+  - { name: location_city,         type: string,  nullable: true }
+  - { name: transaction_timestamp, type: timestamp, nullable: true }
+
+primary_key: [atm_tx_id]
+event_time_column: transaction_timestamp
+allowed_lateness_hours: 24
+
+sla:
+  frequency: realtime
+  expected_volume: "~500K rows/day"
+
+consumers:
+  - silver_atm_transactions
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering

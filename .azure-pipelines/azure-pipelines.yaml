@@ -64,12 +64,37 @@ stages:
         parameters:
           environment: ${{ parameters.environment }}
 
+    # ==========================================================================
+  # STAGE 1.5 — DATA CONTRACT VALIDATION
+  # Ensures contracts match Python schemas and are backward-compatible.
+  # ==========================================================================
+  - stage: ContractValidation
+    displayName: '1.5. Data Contracts'
+    dependsOn: SecurityScans
+    jobs:
+      - job: ValidateContracts
+        displayName: 'Validate data contracts'
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+            fetchDepth: 0     # need history for backward-compat check
+
+          - script: pip install pyyaml jsonschema
+            displayName: 'Install deps'
+
+          - script: python scripts/validate_contracts.py --all --git-diff
+            displayName: 'Validate contracts (schema + backward-compat)'
+
+          - script: pytest tests/unit/test_contract_validation.py -v
+            displayName: 'Run contract validation unit tests'
+
   # ==========================================================================
   # STAGE 2 — VALIDATE (DAB + Terraform)
   # ==========================================================================
   - stage: Validate
     displayName: '2. Validate Bundles & IaC'
-    dependsOn: SecurityScans
+    dependsOn: ContractValidation
     jobs:
       - job: DABValidate
         displayName: 'Validate Databricks Asset Bundle'

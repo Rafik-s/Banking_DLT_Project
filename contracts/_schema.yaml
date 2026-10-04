@@ -1,0 +1,98 @@
+# ============================================================================
+# DATA CONTRACT META-SCHEMA
+# Every contract in contracts/*.yaml must validate against this.
+# ============================================================================
+$schema: "https://json-schema.org/draft/2020-12/schema"
+title: "Banking Data Contract"
+type: object
+required:
+  - dataset
+  - version
+  - owner
+  - source_system
+  - classification
+  - schema
+  - primary_key
+  - sla
+properties:
+  dataset:
+    type: string
+    pattern: "^[a-z][a-z0-9_]*$"
+    description: "Lowercase dataset identifier (matches directory name in raw/)"
+
+  version:
+    type: string
+    pattern: "^\\d+\\.\\d+\\.\\d+$"
+    description: "Semver: MAJOR.MINOR.PATCH. MAJOR = breaking, MINOR = additive, PATCH = doc-only."
+
+  owner:
+    type: object
+    required: [team, email]
+    properties:
+      team:  { type: string }
+      email: { type: string, format: "email" }
+
+  source_system:
+    type: string
+    description: "Upstream application code (e.g., CORE_BANKING, UPI_GATEWAY)"
+
+  classification:
+    type: string
+    enum: [public, internal, confidential, restricted]
+    description: "Data classification for governance"
+
+  schema:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      required: [name, type, nullable]
+      properties:
+        name:        { type: string }
+        type:        { type: string, enum: [string, integer, long, decimal, double, boolean, timestamp, date] }
+        nullable:    { type: boolean }
+        precision:   { type: integer }   # for decimal
+        scale:       { type: integer }   # for decimal
+        description: { type: string }
+        pii:         { type: boolean, default: false }
+        pci:         { type: boolean, default: false }
+        enum:        { type: array, items: { type: string } }
+
+  primary_key:
+    type: array
+    minItems: 1
+    items: { type: string }
+
+  event_time_column:
+    type: string
+    description: "Column used for watermark / SCD2 sequencing"
+
+  allowed_lateness_hours:
+    type: integer
+    default: 24
+
+  sla:
+    type: object
+    required: [frequency, expected_volume]
+    properties:
+      frequency:
+        type: string
+        enum: [realtime, hourly, daily, weekly]
+      expected_volume:
+        type: string
+        description: "Human-readable estimate (e.g., '~5M rows/day')"
+
+  consumers:
+    type: array
+    items: { type: string }
+
+  change_log:
+    type: array
+    items:
+      type: object
+      required: [version, date, change, author]
+      properties:
+        version: { type: string }
+        date:    { type: string, format: "date" }
+        change:  { type: string }
+        author:  { type: string }

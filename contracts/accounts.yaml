@@ -1,0 +1,37 @@
+dataset: accounts
+version: 1.0.0
+owner:
+  team: Core Banking Platform
+  email: core-banking-platform@bank.example
+source_system: CORE_BANKING
+classification: confidential
+
+schema:
+  - { name: account_id,     type: string,  nullable: false }
+  - { name: customer_id,    type: string,  nullable: false }
+  - { name: branch_id,      type: string,  nullable: true  }
+  - { name: account_type,   type: string,  nullable: true, enum: [SAVINGS, CURRENT, FD, RD, NRI] }
+  - { name: currency,       type: string,  nullable: true, enum: [INR, USD, EUR, GBP] }
+  - { name: balance,        type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: account_status, type: string,  nullable: true, enum: [ACTIVE, DORMANT, CLOSED, FROZEN] }
+  - { name: opening_date,   type: date,    nullable: true }
+  - { name: last_modified_date, type: timestamp, nullable: true }
+
+primary_key: [account_id]
+event_time_column: last_modified_date
+allowed_lateness_hours: 168
+
+sla:
+  frequency: daily
+  expected_volume: "~25K rows/day"
+
+consumers:
+  - silver_accounts
+  - dim_accounts
+  - fact_transactions
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering

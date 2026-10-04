@@ -238,3 +238,221 @@ Add under `## [Unreleased]`:
 ### Changed
 - `.azure-pipelines/azure-pipelines.yml` — full rewrite for WIF + supply chain security
 - Databricks auth: `azure-cli` (OIDC) instead of PAT
+
+
+
+
+
+
+# Changelog
+
+All notable changes to the **Enterprise Banking Core Data Platform** will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [Unreleased]
+
+### Workstream 5 — Data Contracts & Schema Evolution
+
+#### Added
+- **Data Contracts framework** (`contracts/`)
+  - One YAML contract per dataset, versioned with semver
+  - Meta-schema in `contracts/_schema.yaml` (JSON Schema)
+  - 10 dataset contracts: customers, accounts, transactions, branches, employees, credit_cards, loans, kyc_documents, fraud_alerts, atm_transactions
+  - Contract registry documented in `contracts/README.md`
+- `src/contract_validation.py` — programmatic contract validation
+  - Meta-schema validation
+  - Python `StructType` ↔ contract match (name, type, precision, scale, nullability, order)
+  - Backward-compatibility enforcement (semver rules)
+- `scripts/validate_contracts.py` — CI entry point
+  - `--all` validates every contract
+  - `--dataset <name>` validates one
+  - `--git-diff` compares against `HEAD` for backward-compat check
+- `tests/unit/test_contract_validation.py` — 12 unit tests
+- CI stage `ContractValidation` (runs after `SecurityScans`)
+- `docs/SCHEMA_EVOLUTION.md` — evolution policy + approval workflow
+- `requirements.txt` — pinned dev + CI dependencies
+- `pyproject.toml` — ruff, black, bandit, pytest, coverage configuration
+
+#### Changed
+- `.azure-pipelines/azure-pipelines.yml` — added `ContractValidation` stage
+- `src/bronze_ingestion.py` — contract validation integrated into reader
+- `cloudFiles.schemaEvolutionMode = failOnNewColumns` — pipeline fails loudly on unauthorized source drift
+
+---
+
+### Workstream 4 — Security & Secrets Modernization
+
+#### Security
+- **BREAKING:** CI/CD now uses Workload Identity Federation (WIF) — PATs removed
+- Databricks CLI pinned to `v0.231.0` with SHA256 verification (was `curl | sh`)
+- Terraform backend moved to Azure Storage with encryption, versioning, soft delete, and RBAC
+- Added gitleaks secret scanning (pre-commit + CI + daily full-history)
+- Added bandit Python SAST
+- Added pip-audit dependency scanning
+- Added checkov + trivy IaC scanning
+- Added GitHub CodeQL weekly scan
+- Added Dependabot for pip / github-actions / terraform
+- Added `CODEOWNERS` requiring review for security-sensitive paths
+- Added `.pre-commit-config.yaml` for local enforcement
+
+#### Added
+- `SECURITY.md` — responsible disclosure policy
+- `docs/TERRAFORM_STATE.md` — state security documentation
+- `docs/SECRET_MANAGEMENT.md` — secret lifecycle + rotation procedure
+- `.github/workflows/codeql.yml`
+- `.github/workflows/secret-scan.yml`
+- `.github/dependabot.yml`
+- `.gitleaks.toml` — custom rules for Databricks PATs, Azure keys, PII leakage
+- `.azure-pipelines/templates/security-scan.yml` — reusable scan template
+- `terraform/backend.tf` — remote state backend
+- `terraform/backend.tfvars.example` — backend config template
+
+#### Changed
+- `.azure-pipelines/azure-pipelines.yml` — full rewrite for WIF + supply chain security
+- Databricks auth: `azure-cli` (OIDC) instead of PAT
+
+---
+
+### Workstream 3 — Banking Reconciliation Engine
+
+#### Added
+- **Banking Reconciliation Engine** (`src/reconciliation.py`)
+  - `COUNT_LAYER` — Bronze ↔ Silver ↔ Gold row count tie-out
+  - `DOUBLE_ENTRY` — `SUM(credits) == SUM(debits)` zero-tolerance check
+  - `AMOUNT` — financial tie-out across layers
+  - Tolerance-aware classification: `PASS` / `WARNING` / `FAIL` / `SKIPPED`
+  - Idempotent append-only results table
+- `cur_gold.reconciliation_results` — one row per check per day
+- `cur_gold.reconciliation_failures` view — on-call triage
+- `cur_gold.reconciliation_sla` view — 30-day pass-rate trend
+- `banking_reconciliation` Workflow job (daily 02:45 IST)
+- `sql/reconciliation_queries.sql` — ad-hoc reference queries
+- `docs/RECONCILIATION.md` — framework + regulatory mapping
+- `terraform/reconciliation_alerts.tf` — Terraform-provisioned views
+- `tests/unit/test_reconciliation.py` — 5 unit tests
+
+#### Changed
+- `resources/banking_dlt_pipeline.yml` — added reconciliation job + rescheduled DQ observability to 02:30
+
+---
+
+### Workstream 2 — Idempotency & Late Data
+
+#### Fixed
+- **Critical:** Late-arriving transactions are no longer silently dropped by watermark — routed to `silver_transactions_late`
+- **Critical:** `fact_transactions` now joins to dimension version valid at transaction time (BCBS 239 as-of-date correctness)
+- **Critical:** SCD2 sequencing now consistent across all dimensions via `_record_updated_at` (source-event time)
+- **Critical:** Removed `uuid()` semantics — replaced with deterministic `_ingest_sequence`
+
+#### Added
+- `source_system` and `event_version` columns in `TRANSACTIONS_SCHEMA`
+- Business idempotency key: `(transaction_id, source_system, event_version)`
+- `_ingest_sequence` in Bronze — deterministic replacement for `uuid()`
+- `_source_file_path` column in Bronze for debugging
+- `silver_transactions_late` quarantine table
+- `docs/IDEMPOTENCY.md` — pattern documentation
+- `tests/unit/test_idempotency.py` — 3 unit tests
+- `tests/unit/test_late_data.py` — 1 unit test
+
+#### Changed
+- Renamed `_ingestion_file_hash` → `_source_file_path_hash` (accurate naming)
+- `cloudFiles.schemaEvolutionMode` set to `failOnNewColumns` (fail loudly on drift)
+- `rescuedDataColumn` enabled — captures schema-mismatched rows
+- `cloudFiles.backfillInterval` set to `1 day` for late file detection
+- `silver_transactions_quarantine` and `silver_transactions_validated` use proper stream-stream joins with time bounds
+
+---
+
+### Workstream 1 — PII & Masking Correctness
+
+#### Fixed
+- **Critical:** `email_masked` in `silver_customers` and `silver_employees` now uses real masking (`j*********@gmail.com`) instead of `lower(trim(email))` which was not a mask
+- **Critical:** `silver_employees.phone_masked` now uses real masking — was previously unmasked
+- `card_number_masked` README wording changed from "PCI-DSS compliant" to "PCI-DSS-aligned" (accurate classification)
+- `_ingestion_file_hash` renamed to `_source_file_path_hash` (it hashes path, not content)
+
+#### Added
+- `email_sha256`, `phone_sha256`, `card_number_sha256` for deterministic PII matching without exposing raw values
+- `docs/SECURITY_BOUNDARY.md` — formal documentation of Bronze PII security boundary
+- `expect_or_fail("valid_record_updated_at", "_record_updated_at IS NOT NULL")` on Silver tables with watermarks
+- Explicit `REVOKE EXECUTE ON FUNCTION pii_hmac FROM account users` in Terraform
+- `REVOKE SELECT ON SCHEMA raw_bronze FROM account users` in Terraform
+- PII column tags now include `tier='bronze-pii'` for audit automation
+- `tests/unit/test_masking.py` — 5 unit tests
+
+#### Changed
+- README framing: "production-grade Tier-1 bank" → "enterprise-grade reference implementation"
+- Added `## ⚠️ Disclaimer` section to README
+- `_record_updated_at` added to `silver_branches`, `silver_credit_cards`, `silver_loans`, `silver_kyc_documents`, `silver_fraud_alerts`, `silver_atm_transactions` (SCD2 prep)
+
+---
+
+## [1.0.0] — 2026-10-04
+
+### Added
+- Medallion Architecture (Bronze / Silver / Gold) on Azure Databricks DLT
+- Auto Loader ingestion for 10 core banking datasets
+- DLT expectations (`expect`, `expect_or_drop`, `expect_or_fail`) on all Silver tables
+- SCD Type 2 dimensions via `APPLY CHANGES INTO`
+- Liquid Clustered fact tables (`fact_transactions`, `fact_loans`, `fact_fraud_alerts`)
+- HMAC-SHA256 PII hashing via Unity Catalog SQL function backed by Databricks Secrets
+- Column masking + row-level security on Silver tables
+- PII column tagging (`pii`, `dpdp`) on Bronze for compliance auditing
+- Quarantine table for orphaned transactions (`silver_transactions_quarantine`)
+- Terraform provisioning for Unity Catalog security functions and secret scopes
+- Databricks Asset Bundle (DAB) with Dev / QA / Prod targets
+- Azure Pipelines CI/CD definition for `bundle validate` and `bundle deploy`
+- Nightly maintenance workflow (OPTIMIZE / ANALYZE / VACUUM)
+- DQ alerting view (`cur_gold.dq_alerts`) for on-call paging
+- Comprehensive `README.md` and `SUPPORT_README.md`
+
+---
+
+## Legend
+
+### Change Categories
+- **Added** — new features, files, or capabilities
+- **Changed** — changes to existing functionality
+- **Deprecated** — features that will be removed in a future release
+- **Removed** — features removed in this release
+- **Fixed** — bug fixes
+- **Security** — security-related changes (CVE fixes, credential handling, etc.)
+
+### Severity Markers
+- **Critical:** — regulatory impact, PII exposure, data loss risk
+- **BREAKING CHANGE:** — requires coordinated migration for consumers
+- No marker — non-breaking improvement
+
+### Versioning
+- **MAJOR** (X.0.0) — breaking change, coordinated release required
+- **MINOR** (x.Y.0) — additive change, backward compatible
+- **PATCH** (x.y.Z) — documentation, comments, or minor fix
+
+---
+
+## How to Update This File
+
+### For every PR
+
+Add a new entry at the top of `## [Unreleased]` under the appropriate category
+(`Added`, `Changed`, `Fixed`, `Security`). Group by workstream if applicable.
+
+### Template
+
+```markdown
+### Workstream N — <Title>
+
+#### Added
+- <New feature>
+
+#### Fixed
+- **Critical:** <regulatory or PII issue>
+
+#### Changed
+- <Modification to existing behavior>
+
+

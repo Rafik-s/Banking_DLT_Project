@@ -1,0 +1,39 @@
+dataset: credit_cards
+version: 1.0.0
+owner:
+  team: Card Operations
+  email: card-ops@bank.example
+source_system: CARD_MANAGEMENT
+classification: restricted
+
+schema:
+  - { name: card_id,             type: string,  nullable: false }
+  - { name: customer_id,         type: string,  nullable: false }
+  - { name: account_id,          type: string,  nullable: true  }
+  - { name: card_number_raw,     type: string,  nullable: true, pci: true }
+  - { name: card_variant,        type: string,  nullable: true, enum: [CLASSIC, GOLD, PLATINUM, SIGNATURE, INFINITE] }
+  - { name: credit_limit,        type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: outstanding_balance, type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: available_limit,     type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: card_status,         type: string,  nullable: true, enum: [ACTIVE, BLOCKED, EXPIRED, CANCELLED] }
+  - { name: issue_date,          type: date,    nullable: true }
+  - { name: expiry_date,         type: date,    nullable: true }
+
+primary_key: [card_id]
+event_time_column: issue_date
+allowed_lateness_hours: 168
+
+sla:
+  frequency: daily
+  expected_volume: "~50K rows/day"
+
+consumers:
+  - silver_credit_cards
+  - dim_credit_cards
+  - fact_fraud_alerts
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering

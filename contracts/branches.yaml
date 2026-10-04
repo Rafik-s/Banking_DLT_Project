@@ -1,0 +1,38 @@
+dataset: branches
+version: 1.0.0
+owner:
+  team: Branch Network Operations
+  email: branch-network@bank.example
+source_system: CORE_BANKING
+classification: internal
+
+schema:
+  - { name: branch_id,        type: string,  nullable: false }
+  - { name: ifsc_code,        type: string,  nullable: false }
+  - { name: branch_name,      type: string,  nullable: true  }
+  - { name: branch_category,  type: string,  nullable: true, enum: [METRO, URBAN, SEMI_URBAN, RURAL] }
+  - { name: region,           type: string,  nullable: true, enum: [NORTH, SOUTH, EAST, WEST, CENTRAL] }
+  - { name: city,             type: string,  nullable: true }
+  - { name: state,            type: string,  nullable: true }
+  - { name: pincode,          type: string,  nullable: true }
+  - { name: cash_vault_limit, type: decimal, precision: 18, scale: 2, nullable: true }
+  - { name: branch_status,    type: string,  nullable: true, enum: [ACTIVE, CLOSED, RELOCATED] }
+  - { name: opening_date,     type: date,    nullable: true }
+
+primary_key: [branch_id]
+event_time_column: opening_date
+allowed_lateness_hours: 720
+
+sla:
+  frequency: weekly
+  expected_volume: "~10 rows/week"
+
+consumers:
+  - silver_branches
+  - dim_branches
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering

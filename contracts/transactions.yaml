@@ -1,0 +1,100 @@
+# ============================================================================
+# DATA CONTRACT — transactions
+# Source: Core Banking (Finacle)
+# ============================================================================
+dataset: transactions
+version: 1.1.0
+owner:
+  team: Core Banking Platform
+  email: core-banking-platform@bank.example
+source_system: CORE_BANKING
+classification: confidential
+
+schema:
+  - name: transaction_id
+    type: string
+    nullable: false
+    description: "Unique per source system, NOT globally unique"
+
+  - name: account_id
+    type: string
+    nullable: false
+    description: "FK to accounts.account_id"
+
+  - name: customer_id
+    type: string
+    nullable: false
+    description: "FK to customers.customer_id"
+
+  - name: transaction_type
+    type: string
+    nullable: true
+    enum: [NEFT, RTGS, IMPS, UPI, ATM, CARD, INTERNAL, CHQ, DD]
+
+  - name: channel
+    type: string
+    nullable: true
+    enum: [BRANCH, ATM, MOBILE, INTERNET, API, POS]
+
+  - name: amount
+    type: decimal
+    precision: 18
+    scale: 2
+    nullable: true
+    description: "Absolute amount in INR (direction in db_cr_indicator)"
+
+  - name: db_cr_indicator
+    type: string
+    nullable: true
+    enum: [CR, DR]
+
+  - name: transaction_status
+    type: string
+    nullable: true
+    enum: [SUCCESS, FAILED, PENDING, REVERSED]
+
+  - name: iso_8583_response_code
+    type: string
+    nullable: true
+    description: "ISO 8583 code, defaults to '00' if absent"
+
+  - name: transaction_timestamp
+    type: timestamp
+    nullable: true
+    description: "Event time; used for watermark and deduplication"
+
+  - name: source_system
+    type: string
+    nullable: true
+    description: "Added in v1.1.0 — idempotency key component"
+
+  - name: event_version
+    type: integer
+    nullable: true
+    description: "Added in v1.1.0 — CDC sequence number"
+
+primary_key: [transaction_id, source_system, event_version]
+event_time_column: transaction_timestamp
+allowed_lateness_hours: 24
+
+sla:
+  frequency: realtime
+  expected_volume: "~5M rows/day"
+
+consumers:
+  - silver_transactions
+  - fact_transactions
+  - fact_fraud_alerts
+  - dq_metrics_history
+
+change_log:
+  - version: 1.0.0
+    date: 2026-09-15
+    change: Initial contract
+    author: Data Platform Engineering
+  - version: 1.1.0
+    date: 2026-10-04
+    change: |
+      Added source_system and event_version for business idempotency.
+      MINOR bump (additive, backward compatible).
+    author: Data Platform Engineering

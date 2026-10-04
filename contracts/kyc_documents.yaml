@@ -1,0 +1,34 @@
+dataset: kyc_documents
+version: 1.0.0
+owner:
+  team: KYC Operations
+  email: kyc-ops@bank.example
+source_system: KYC_SYSTEM
+classification: restricted
+
+schema:
+  - { name: kyc_id,                    type: string,  nullable: false }
+  - { name: customer_id,               type: string,  nullable: false }
+  - { name: document_type,             type: string,  nullable: true, enum: [AADHAAR, PAN, PASSPORT, VOTER_ID, DRIVING_LICENSE] }
+  - { name: document_number_raw,       type: string,  nullable: true, pii: true, dpdp: restricted }
+  - { name: verification_status,       type: string,  nullable: true, enum: [VERIFIED, PENDING, REJECTED] }
+  - { name: verified_by_employee_id,   type: string,  nullable: true }
+  - { name: submission_date,           type: date,    nullable: true }
+  - { name: expiry_date,               type: date,    nullable: true }
+
+primary_key: [kyc_id]
+event_time_column: submission_date
+allowed_lateness_hours: 168
+
+sla:
+  frequency: daily
+  expected_volume: "~15K rows/day"
+
+consumers:
+  - silver_kyc_documents
+
+change_log:
+  - version: 1.0.0
+    date: 2026-10-04
+    change: Initial contract
+    author: Data Platform Engineering
