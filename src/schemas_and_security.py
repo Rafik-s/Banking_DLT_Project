@@ -186,3 +186,23 @@ ATM_TRANSACTIONS_SCHEMA = StructType([
     StructField("location_city",         StringType(),   True),
     StructField("transaction_timestamp", TimestampType(), True),
 ])
+# ---------------------------------------------------------------------------
+# RECONCILIATION SCHEMA
+# ---------------------------------------------------------------------------
+RECONCILIATION_RESULTS_SCHEMA = StructType([
+    StructField("business_date",       DateType(),      False),
+    StructField("dataset",             StringType(),    False),
+    StructField("reconciliation_type", StringType(),    False),  # COUNT_LAYER, COUNT_FINANCIAL, AMOUNT
+    StructField("source_layer",        StringType(),    False),
+    StructField("target_layer",        StringType(),    False),
+    StructField("source_count",        IntegerType(),   True),
+    StructField("target_count",        IntegerType(),   True),
+    StructField("count_difference",    IntegerType(),   True),
+    StructField("source_amount_inr",   DecimalType(20, 2), True),
+    StructField("target_amount_inr",   DecimalType(20, 2), True),
+    StructField("amount_difference",   DecimalType(20, 2), True),
+    StructField("tolerance_pct",       DecimalType(5, 4), True),
+    StructField("status",              StringType(),    False),  # PASS, FAIL, WARNING, SKIPPED
+    StructField("failure_reason",      StringType(),    True),
+    StructField("reconciled_at",       TimestampType(), False),
+])

@@ -51,7 +51,7 @@ resources:
     banking_dq_observability:
       name: ${bundle.target}-banking-dq-observability
       schedule:
-        quartz_cron_expression: "0 30 2 * * ?"
+        quartz_cron_expression: "0 30 2 * * ?"   # 02:30 IST — before reconciliation
         timezone_id: "Asia/Kolkata"
 
       tasks:
@@ -61,3 +61,19 @@ resources:
             file:
               path: ../sql/dq_alerts.sql
               source: WORKSPACE
+    banking_reconciliation:
+      name: ${bundle.target}-banking-reconciliation
+      schedule:
+        quartz_cron_expression: "0 45 2 * * ?"   # 02:45 IST, after DQ metrics
+        timezone_id: "Asia/Kolkata"
+      tasks:
+        - task_key: reconcile
+          notebook_task:
+            notebook_path: ../src/reconciliation.py
+            base_parameters:
+              catalog:       ${var.catalog}
+              business_date: "{{job.start_time.iso_date}}"
+              tolerance_pct: "0.0001"
+            source: WORKSPACE
+          # Do not retry — a FAIL should page on-call immediately
+          max_retries: 0

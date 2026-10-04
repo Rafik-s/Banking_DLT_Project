@@ -44,3 +44,63 @@ Add under `## [Unreleased]`:
 - `cloudFiles.schemaEvolutionMode` set to `failOnNewColumns` (fail loudly on drift)
 - `rescuedDataColumn` enabled — captures schema-mismatched rows
 - `cloudFiles.backfillInterval` set to `1 day` for late file detection
+
+
+
+
+
+---
+
+## 📄 File 7 (NEW): `tests/unit/test_reconciliation.py`
+
+```python
+"""Unit tests for reconciliation classification logic."""
+import pytest
+from decimal import Decimal
+
+from src.reconciliation import _classify
+
+
+def test_classify_exact_match_passes():
+    status, reason = _classify(0, Decimal("0.00"), 0.0001)
+    assert status == "PASS"
+    assert reason is None
+
+
+def test_classify_count_mismatch_fails():
+    status, reason = _classify(5, Decimal("0.00"), 0.0001)
+    assert status == "FAIL"
+    assert "row count difference" in reason
+
+
+def test_classify_count_mismatch_negative_fails():
+    status, reason = _classify(-3, Decimal("0.00"), 0.0001)
+    assert status == "FAIL"
+    assert "row count difference of -3" in reason
+
+
+def test_classify_count_ok_amount_mismatch_fails():
+    status, reason = _classify(0, Decimal("100.00"), 0.0001)
+    assert status == "FAIL"
+    assert "amount differs" in reason
+
+
+def test_classify_no_discrepancy_returns_pass():
+    status, reason = _classify(0, Decimal("0.00"), 0.0001)
+    assert status == "PASS"
+
+### Added
+- **Banking Reconciliation Engine** (`src/reconciliation.py`)
+  - COUNT_LAYER reconciliation: Bronze ↔ Silver ↔ Gold
+  - DOUBLE_ENTRY reconciliation: SUM(credits) == SUM(debits)
+  - AMOUNT reconciliation: financial tie-out across layers
+  - Tolerance-aware classification (PASS / WARNING / FAIL / SKIPPED)
+  - Idempotent append-only results table
+- `cur_gold.reconciliation_results` — one row per check per day
+- `cur_gold.reconciliation_failures` view — on-call triage
+- `cur_gold.reconciliation_sla` view — 30-day pass-rate trend
+- `banking_reconciliation` Workflow job (02:45 IST daily)
+- `sql/reconciliation_queries.sql` — ad-hoc reference queries
+- `docs/RECONCILIATION.md` — framework documentation
+- `terraform/reconciliation_alerts.tf` — Terraform-provisioned views
+- Unit tests in `tests/unit/test_reconciliation.py`
