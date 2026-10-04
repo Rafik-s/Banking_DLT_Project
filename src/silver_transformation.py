@@ -1,8 +1,15 @@
 """
 MODULE: SILVER TRANSFORMATION
 
-Cleansing, watermarking, PII hashing via UC HMAC, referential integrity.
-Every Silver table enforces DLT expectations (fail / drop).
+Cleansing, watermarking, PII masking, referential integrity.
+
+PII masking strategy (see docs/SECURITY_BOUNDARY.md):
+  - Email    : HMAC-SHA256 for deterministic matching + display mask
+  - Phone    : display mask only (last 5 digits) + HMAC for matching
+  - Aadhaar  : HMAC-SHA256 + display mask (last 4)
+  - PAN      : HMAC-SHA256 + display mask (first 5, last 1)
+  - Card     : PCI-DSS-ALIGNED first-6 + last-4 (NOT a PCI compliance claim)
+  - Raw PII  : dropped from schema after transformation
 """
 
 import dlt
@@ -18,52 +25,125 @@ SILVER_PROPS = {
 
 
 # ===========================================================================
+# HELPER: display-mask functions (pure, deterministic, no secrets)
+# ===========================================================================
+def _mask_email(email_col):
+    """
+    Display mask for email. Preserves first char + domain for readability.
+    Example: john.smith@gmail.com -> j*********@gmail.com
+    """
+    return F.when(
+        email_col.isNull() | (F.length(email_col) < 3),
+        F.lit("***@***"),
+    ).otherwise(
+        F.concat(
+            F.substring(email_col, 1, 1),
+            F.lit("*********"),
+            F.lit("@"),
+            F.regexp_extract(email_col, "@(.+)$", 1),
+        )
+    )
+
+
+def _mask_phone(phone_col):
+    """
+    Display mask for phone. Preserves last 5 digits.
+    Example: +919876543210 -> +91-XXXXX-43210
+    """
+    return F.when(
+        phone_col.isNull() | (F.length(phone_col) < 5),
+        F.lit("+91-XXXXX-00000"),
+    ).otherwise(
+        F.concat(
+            F.lit("+91-XXXXX-"),
+            F.substring(phone_col, -5, 5),
+        )
+    )
+
+
+def _mask_aadhaar(aadhaar_col):
+    """
+    Display mask for Aadhaar. Preserves last 4.
+    Example: 123456789012 -> XXXX-XXXX-9012
+    """
+    return F.when(
+        F.length(aadhaar_col) == 12,
+        F.concat(F.lit("XXXX-XXXX-"), F.substring(aadhaar_col, -4, 4)),
+    ).otherwise(F.lit("XXXX-XXXX-0000"))
+
+
+def _mask_pan(pan_col):
+    """
+    Display mask for PAN. Preserves first 5 + last 1.
+    Example: ABCDE1234F -> ABCDE****F
+    """
+    return F.when(
+        F.length(pan_col) == 10,
+        F.concat(
+            F.substring(pan_col, 1, 5),
+            F.lit("****"),
+            F.substring(pan_col, -1, 1),
+        ),
+    ).otherwise(F.lit("ABCDE****F"))
+
+
+def _mask_card_number(card_col):
+    """
+    Display mask for card number: first 6 (BIN) + last 4.
+    NOTE: This is PCI-DSS-ALIGNED masking, not a PCI-DSS compliance claim.
+    Full PCI compliance requires the complete control environment —
+    see docs/SECURITY_BOUNDARY.md.
+    """
+    return F.when(
+        F.length(card_col) >= 10,
+        F.concat(
+            F.substring(card_col, 1, 6),
+            F.lit("******"),
+            F.substring(card_col, -4, 4),
+        ),
+    ).otherwise(F.lit("XXXXXX******XXXX"))
+
+
+# ===========================================================================
 # SILVER CUSTOMERS
 # ===========================================================================
 @dlt.table(
     name=f"{CATALOG}.{SILVER_SCHEMA}.silver_customers",
-    comment="Cleansed customers with UC-HMAC hashed and masked PII.",
+    comment="Cleansed customers with UC-HMAC hashed and display-masked PII.",
     table_properties=SILVER_PROPS,
 )
-@dlt.expect_or_fail("valid_customer_id",   "customer_id IS NOT NULL")
+@dlt.expect_or_fail("valid_customer_id", "customer_id IS NOT NULL")
+@dlt.expect_or_fail("valid_record_updated_at", "_record_updated_at IS NOT NULL")
 @dlt.expect_or_drop("valid_kyc_status",
     "kyc_status IN ('VERIFIED', 'PENDING_REKYC', 'REJECTED', 'IN_PROGRESS')")
 @dlt.expect_or_drop("valid_customer_status",
     "customer_status IN ('ACTIVE', 'DORMANT', 'CLOSED')")
-@dlt.expect("valid_email_structure",
-    "email RLIKE '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\\\.[A-Za-z]{2,}$'")
 def silver_customers():
     return (
         dlt.read_stream(f"{CATALOG}.{BRONZE_SCHEMA}.bronze_customers")
             .withColumn("full_name", F.initcap(F.trim("full_name")))
             .withColumn("city",  F.upper(F.trim("city")))
             .withColumn("state", F.upper(F.trim("state")))
-            # HMAC via UC function — salt lives in secret scope, never in code
+
+            # HMAC (deterministic matching key — not reversible)
             .withColumn("aadhaar_sha256",
                 F.expr(f"{CATALOG}.security.pii_hmac(aadhaar_number)"))
             .withColumn("pan_sha256",
                 F.expr(f"{CATALOG}.security.pii_hmac(pan_number)"))
-            # Display masks
-            .withColumn("aadhaar_masked",
-                F.when(F.length("aadhaar_number") == 12,
-                    F.concat(F.lit("XXXX-XXXX-"),
-                             F.substring("aadhaar_number", -4, 4)))
-                 .otherwise(F.lit("XXXX-XXXX-0000")))
-            .withColumn("pan_masked",
-                F.when(F.length("pan_number") == 10,
-                    F.concat(F.substring("pan_number", 1, 5),
-                             F.lit("****"),
-                             F.substring("pan_number", -1, 1)))
-                 .otherwise(F.lit("ABCDE****F")))
-            .withColumn("phone_masked",
-                F.when(F.length("phone") >= 10,
-                    F.concat(F.lit("+91-XXXXX-"),
-                             F.substring("phone", -5, 5)))
-                 .otherwise(F.lit("+91-XXXXX-00000")))
-            .withColumn("email_masked", F.lower(F.trim("email")))
-            # Never persist raw PII past Silver
+            .withColumn("email_sha256",
+                F.expr(f"{CATALOG}.security.pii_hmac(lower(trim(email)))"))
+            .withColumn("phone_sha256",
+                F.expr(f"{CATALOG}.security.pii_hmac(regexp_replace(phone, '[^0-9]', ''))"))
+
+            # Display masks (for human readability)
+            .withColumn("aadhaar_masked", _mask_aadhaar(F.col("aadhaar_number")))
+            .withColumn("pan_masked",     _mask_pan(F.col("pan_number")))
+            .withColumn("email_masked",   _mask_email(F.lower(F.trim("email"))))
+            .withColumn("phone_masked",   _mask_phone(F.col("phone")))
+
+            # Drop raw PII — never persisted past Silver
             .drop("aadhaar_number", "pan_number", "phone", "email")
-            # Source-event time for SCD2 sequencing
+
             .withColumn("_record_updated_at",
                 F.coalesce(F.col("last_modified_date"),
                            F.col("_ingestion_timestamp")))
@@ -79,8 +159,9 @@ def silver_customers():
     comment="Cleansed accounts — source for SCD2 account dimension.",
     table_properties=SILVER_PROPS,
 )
-@dlt.expect_or_fail("valid_account_id",  "account_id IS NOT NULL")
+@dlt.expect_or_fail("valid_account_id", "account_id IS NOT NULL")
 @dlt.expect_or_fail("valid_customer_fk", "customer_id IS NOT NULL")
+@dlt.expect_or_fail("valid_record_updated_at", "_record_updated_at IS NOT NULL")
 @dlt.expect_or_drop("non_negative_balance", "current_balance >= 0.00")
 @dlt.expect_or_drop("valid_account_type",
     "account_type IN ('SAVINGS', 'CURRENT', 'FD', 'RD', 'NRI')")
@@ -88,10 +169,13 @@ def silver_accounts():
     return (
         dlt.read_stream(f"{CATALOG}.{BRONZE_SCHEMA}.bronze_accounts")
             .withColumnRenamed("balance", "current_balance")
-            .withColumn("current_balance", F.col("current_balance").cast("decimal(18,2)"))
+            .withColumn("current_balance",
+                F.col("current_balance").cast("decimal(18,2)"))
             .withColumn("account_type",   F.upper(F.trim("account_type")))
-            .withColumn("account_status", F.coalesce(F.upper(F.trim("account_status")), F.lit("ACTIVE")))
-            .withColumn("currency",       F.coalesce(F.upper(F.trim("currency")), F.lit("INR")))
+            .withColumn("account_status",
+                F.coalesce(F.upper(F.trim("account_status")), F.lit("ACTIVE")))
+            .withColumn("currency",
+                F.coalesce(F.upper(F.trim("currency")), F.lit("INR")))
             .withColumn("_record_updated_at",
                 F.coalesce(F.col("last_modified_date"),
                            F.col("_ingestion_timestamp")))
@@ -100,7 +184,7 @@ def silver_accounts():
 
 
 # ===========================================================================
-# SILVER TRANSACTIONS (Watermarked)
+# SILVER TRANSACTIONS (Watermarked, deduplicated)
 # ===========================================================================
 @dlt.table(
     name=f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions",
@@ -117,9 +201,7 @@ def silver_accounts():
 def silver_transactions():
     return (
         dlt.read_stream(f"{CATALOG}.{BRONZE_SCHEMA}.bronze_transactions")
-            # Event-time watermark — bound state, drop data older than 24h
             .withWatermark("transaction_timestamp", "24 hours")
-            # Dedup within watermark window (Spark 3.5+ / DBR 14.3+)
             .dropDuplicatesWithinWatermark(["transaction_id"])
             .withColumn("transaction_type", F.upper(F.trim("transaction_type")))
             .withColumn("channel",          F.upper(F.trim("channel")))
@@ -156,16 +238,18 @@ def silver_branches():
             .withColumn("ifsc_code",   F.upper(F.trim("ifsc_code")))
             .withColumn("cash_vault_limit",
                 F.col("cash_vault_limit").cast("decimal(18,2)"))
+            # Source-event time for SCD2 (fallback to ingestion time if missing)
+            .withColumn("_record_updated_at", F.col("_ingestion_timestamp"))
             .withColumn("_updated_timestamp", F.current_timestamp())
     )
 
 
 # ===========================================================================
-# SILVER EMPLOYEES
+# SILVER EMPLOYEES  (PII masking corrected)
 # ===========================================================================
 @dlt.table(
     name=f"{CATALOG}.{SILVER_SCHEMA}.silver_employees",
-    comment="Cleansed employee master data.",
+    comment="Cleansed employee master with masked PII.",
     table_properties={"quality": "silver"},
 )
 @dlt.expect_or_fail("valid_employee_id", "employee_id IS NOT NULL")
@@ -177,25 +261,33 @@ def silver_employees():
             .withColumn("full_name",  F.initcap(F.trim("full_name")))
             .withColumn("department", F.upper(F.trim("department")))
             .withColumn("role",       F.upper(F.trim("role")))
-            .withColumn("email_masked", F.lower(F.trim("email")))
-            .withColumn("phone_masked",
-                F.when(F.length("phone") >= 10,
-                    F.concat(F.lit("+91-XXXXX-"),
-                             F.substring("phone", -5, 5)))
-                 .otherwise(F.lit("+91-XXXXX-00000")))
+
+            # HMAC for deterministic matching
+            .withColumn("email_sha256",
+                F.expr(f"{CATALOG}.security.pii_hmac(lower(trim(email)))"))
+            .withColumn("phone_sha256",
+                F.expr(f"{CATALOG}.security.pii_hmac(regexp_replace(phone, '[^0-9]', ''))"))
+
+            # Display masks
+            .withColumn("email_masked", _mask_email(F.lower(F.trim("email"))))
+            .withColumn("phone_masked", _mask_phone(F.col("phone")))
+
+            # Drop raw PII
             .drop("phone", "email")
+
             .withColumn("salary_annual",
                 F.col("salary_annual").cast("decimal(18,2)"))
+            .withColumn("_record_updated_at", F.col("_ingestion_timestamp"))
             .withColumn("_updated_timestamp", F.current_timestamp())
     )
 
 
 # ===========================================================================
-# SILVER CREDIT CARDS
+# SILVER CREDIT CARDS  (PCI-DSS-ALIGNED masking wording)
 # ===========================================================================
 @dlt.table(
     name=f"{CATALOG}.{SILVER_SCHEMA}.silver_credit_cards",
-    comment="Cleansed credit card portfolio.",
+    comment="Cleansed credit card portfolio (PCI-DSS-ALIGNED PAN masking).",
     table_properties={"quality": "silver"},
 )
 @dlt.expect_or_fail("valid_card_id", "card_id IS NOT NULL")
@@ -205,12 +297,15 @@ def silver_credit_cards():
         dlt.read_stream(f"{CATALOG}.{BRONZE_SCHEMA}.bronze_credit_cards")
             .withColumn("card_variant", F.upper(F.trim("card_variant")))
             .withColumn("card_status",  F.upper(F.trim("card_status")))
-            # PCI-DSS: first 6 + last 4 (BIN + cardholder suffix)
+
+            # PAN masking (first 6 + last 4) — PCI-DSS-ALIGNED
             .withColumn("card_number_masked",
-                F.concat(F.substring("card_number_raw", 1, 6),
-                         F.lit("******"),
-                         F.substring("card_number_raw", -4, 4)))
+                _mask_card_number(F.col("card_number_raw")))
+            # HMAC for deterministic matching without storing PAN
+            .withColumn("card_number_sha256",
+                F.expr(f"{CATALOG}.security.pii_hmac(card_number_raw)"))
             .drop("card_number_raw")
+
             .withColumn("credit_limit",
                 F.col("credit_limit").cast("decimal(18,2)"))
             .withColumn("outstanding_balance",
@@ -218,6 +313,7 @@ def silver_credit_cards():
             .withColumn("available_limit",
                 (F.col("credit_limit") - F.col("outstanding_balance"))
                     .cast("decimal(18,2)"))
+            .withColumn("_record_updated_at", F.col("_ingestion_timestamp"))
             .withColumn("_updated_timestamp", F.current_timestamp())
     )
 
@@ -244,6 +340,7 @@ def silver_loans():
             .withColumn("outstanding_principal",
                 F.col("outstanding_principal").cast("decimal(18,2)"))
             .withColumn("dpd", F.col("dpd").cast("integer"))
+            .withColumn("_record_updated_at", F.col("_ingestion_timestamp"))
             .withColumn("_updated_timestamp", F.current_timestamp())
     )
 
@@ -269,6 +366,7 @@ def silver_kyc_documents():
             .withColumn("doc_number_sha256",
                 F.expr(f"{CATALOG}.security.pii_hmac(document_number_raw)"))
             .drop("document_number_raw")
+            .withColumn("_record_updated_at", F.col("_ingestion_timestamp"))
             .withColumn("_updated_timestamp", F.current_timestamp())
     )
 
@@ -294,6 +392,7 @@ def silver_fraud_alerts():
             .withColumn("resolution_status", F.upper(F.trim("resolution_status")))
             .withColumn("risk_score",        F.col("risk_score").cast("integer"))
             .withColumn("alert_timestamp",   F.to_timestamp("alert_timestamp"))
+            .withColumn("_record_updated_at", F.col("_ingestion_timestamp"))
             .withColumn("_updated_timestamp", F.current_timestamp())
     )
 
@@ -318,6 +417,7 @@ def silver_atm_transactions():
             .withColumn("surcharge_fee",    F.col("surcharge_fee").cast("decimal(18,2)"))
             .withColumn("transaction_timestamp",
                 F.to_timestamp("transaction_timestamp"))
+            .withColumn("_record_updated_at", F.col("_ingestion_timestamp"))
             .withColumn("_updated_timestamp", F.current_timestamp())
     )
 
@@ -327,50 +427,61 @@ def silver_atm_transactions():
 # ===========================================================================
 @dlt.table(
     name=f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions_quarantine",
-    comment="Orphaned transactions — account_id not found in silver_accounts.",
+    comment="Orphaned transactions — account_id not found within 30-day window.",
     table_properties={"quality": "silver"},
 )
 def silver_transactions_quarantine():
-    """
-    Left-anti against current accounts. Note: this is a batch snapshot
-    against the streaming accounts table. Orphaned transactions that
-    later get a valid account require a manual backfill.
-    """
+    txn = (
+        dlt.read_stream(f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions")
+            .withWatermark("transaction_timestamp", "24 hours")
+            .alias("t")
+    )
+    acc = (
+        dlt.read_stream(f"{CATALOG}.{SILVER_SCHEMA}.silver_accounts")
+            .withWatermark("_record_updated_at", "30 days")
+            .select("account_id", "_record_updated_at")
+            .alias("a")
+    )
     return (
-        dlt.read_stream(f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions").alias("t")
-            .join(
-                dlt.read(f"{CATALOG}.{SILVER_SCHEMA}.silver_accounts")
-                    .select("account_id")
-                    .distinct()
-                    .alias("a"),
-                F.col("t.account_id") == F.col("a.account_id"),
-                "left_anti",
-            )
+        txn.join(
+            acc,
+            F.expr("""
+                t.account_id = a.account_id
+                AND a._record_updated_at BETWEEN
+                    t.transaction_timestamp - INTERVAL 30 DAYS
+                    AND t.transaction_timestamp + INTERVAL 30 DAYS
+            """),
+            "left_anti",
+        ).select("t.*")
     )
 
 
 @dlt.table(
     name=f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions_validated",
-    comment="Transactions with referential integrity verified against accounts.",
+    comment="Transactions with referential integrity verified.",
     table_properties={"quality": "silver"},
 )
 def silver_transactions_validated():
-    """
-    Stream-stream join with time bounds. Accounts arriving up to 7 days
-    after their transactions still validate correctly. Older mismatches
-    remain in quarantine and require a manual backfill.
-    """
     txn = (
         dlt.read_stream(f"{CATALOG}.{SILVER_SCHEMA}.silver_transactions")
             .withWatermark("transaction_timestamp", "24 hours")
+            .alias("t")
     )
     acc = (
         dlt.read_stream(f"{CATALOG}.{SILVER_SCHEMA}.silver_accounts")
             .withWatermark("_record_updated_at", "7 days")
             .select("account_id", "_record_updated_at")
+            .alias("a")
     )
     return (
-        txn.alias("t")
-            .join(acc.alias("a"), "account_id", "inner")
-            .select("t.*")
+        txn.join(
+            acc,
+            F.expr("""
+                t.account_id = a.account_id
+                AND a._record_updated_at BETWEEN
+                    t.transaction_timestamp - INTERVAL 7 DAYS
+                    AND t.transaction_timestamp + INTERVAL 7 DAYS
+            """),
+            "inner",
+        ).select("t.*")
     )
