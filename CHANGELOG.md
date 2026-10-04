@@ -456,3 +456,92 @@ Add a new entry at the top of `## [Unreleased]` under the appropriate category
 - <Modification to existing behavior>
 
 
+### Workstream 6 — DR, Networking, Key Vault & Environment Separation
+
+#### Added
+- **Disaster Recovery plan** (`docs/DR_PLAN.md`)
+  - RPO ≤ 15 minutes, RTO ≤ 60 minutes
+  - GRS/RA-GRS replication for ADLS
+  - DR region workspace (Terraform-provisioned)
+  - Quarterly automated drills (`scripts/dr_drill.sh`)
+  - DR drill CI pipeline (`.azure-pipelines/dr-drill.yml`)
+- **Network architecture** (`docs/NETWORK_ARCHITECTURE.md`)
+  - VNet-injected Databricks (Secure Cluster Connectivity, no public IPs)
+  - Private Endpoints for ADLS, Key Vault, Databricks UI
+  - Private DNS zones
+  - NAT gateway + egress firewall allowlist
+  - NSGs per subnet
+- **Key Vault integration** (`docs/KEY_VAULT_INTEGRATION.md`)
+  - Terraform: `terraform/key_vault.tf`
+  - RBAC + Private Endpoint + audit logging
+  - Rotation policy + emergency access procedure
+- **Environment separation** (`docs/ENVIRONMENT_SEPARATION.md`)
+  - Per-environment Azure subscriptions, VNets, storage, Key Vaults
+  - No VNet peering; no shared secrets
+  - Dedicated service principals per environment
+  - CAB approval workflow for Prod
+- **Operational runbook** (`docs/RUNBOOK.md`)
+  - On-call procedures for common incidents
+  - Escalation matrix
+  - Useful CLI commands
+- **Incident response** (`docs/INCIDENT_RESPONSE.md`)
+  - Severity levels (SEV-1 to SEV-4)
+  - Post-mortem template
+  - Regulatory notification requirements
+- **Terraform**: `networking.tf`, `key_vault.tf`, `environments.tf`, `dr_replication.tf`
+- **Scripts**: `dr_drill.sh`, `verify_key_vault.sh`
+- **CI**: `.azure-pipelines/dr-drill.yml` — quarterly scheduled drill
+
+#### Changed
+- `terraform/README.md` — comprehensive Terraform guide
+
+---
+
+#### Fixed
+- Late-arriving transactions are no longer silently dropped by watermark — routed to `silver_transactions_late`
+- `fact_transactions` now joins to dimension version valid at transaction time (BCBS 239)
+- SCD2 sequencing now consistent across all dimensions via `_record_updated_at`
+- Removed `uuid()` — replaced with deterministic `_ingest_sequence`
+
+#### Added (Workstream 2)
+- `source_system` and `event_version` columns in `TRANSACTIONS_SCHEMA`
+- Business idempotency key: `(transaction_id, source_system, event_version)`
+- `silver_transactions_late` quarantine table
+- `docs/IDEMPOTENCY.md`
+- `tests/unit/test_idempotency.py` (3 tests)
+- `tests/unit/test_late_data.py` (1 test)
+
+#### Added (Workstream 1)
+- Real email/phone masking in `silver_customers` and `silver_employees`
+- `email_sha256`, `phone_sha256`, `card_number_sha256` for deterministic matching
+- `docs/SECURITY_BOUNDARY.md`
+- `tests/unit/test_masking.py` (5 tests)
+
+#### Changed (Workstream 1)
+- `card_number_masked` — PCI-DSS wording corrected to "aligned"
+- README rebranded to "enterprise-grade reference implementation"
+- `_ingestion_file_hash` → `_source_file_path_hash`
+
+#### Added (Workstream 3)
+- **Banking Reconciliation Engine** (`src/reconciliation.py`)
+- `cur_gold.reconciliation_results` + failure + SLA views
+- `docs/RECONCILIATION.md`
+- `sql/reconciliation_queries.sql`
+- `tests/unit/test_reconciliation.py` (5 tests)
+
+#### Added (Workstream 4)
+- WIF for CI/CD (no PATs)
+- Pinned Databricks CLI + checksums
+- Terraform remote state backend
+- gitleaks, bandit, pip-audit, checkov, trivy, CodeQL, Dependabot
+- `SECURITY.md`, `docs/TERRAFORM_STATE.md`, `docs/SECRET_MANAGEMENT.md`
+- `CODEOWNERS`, `.pre-commit-config.yaml`, `.gitleaks.toml`
+
+#### Added (Workstream 5)
+- **Data Contracts** (`contracts/*.yaml` — 10 datasets)
+- `src/contract_validation.py`, `scripts/validate_contracts.py`
+- `docs/SCHEMA_EVOLUTION.md`
+- CI stage `ContractValidation`
+- `tests/unit/test_contract_validation.py` (12 tests)
+- `requirements.txt`, `pyproject.toml`
+

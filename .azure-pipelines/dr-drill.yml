@@ -1,0 +1,72 @@
+# ============================================================================
+# DR DRILL PIPELINE — Runs quarterly to validate DR procedures
+# ============================================================================
+
+schedules:
+  - cron: "0 3 1 */3 *"       # First day of Jan, Apr, Jul, Oct at 03:00 UTC
+    displayName: 'Quarterly DR drill'
+    branches:
+      include: [main]
+    always: true
+
+trigger: none   # no auto-trigger on commits
+
+parameters:
+  - name: environment
+    displayName: 'DR drill target'
+    type: string
+    default: qa
+    values: [dev, qa]
+
+variables:
+  - group: databricks-$(environment)-secrets
+
+stages:
+  - stage: DRDrill
+    displayName: 'DR Drill — $(environment)'
+    jobs:
+      - deployment: RunDrill
+        displayName: 'Execute DR drill'
+        environment: 'dr-drill-$(environment)'
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: AzureCLI@2
+                  displayName: 'Azure login'
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az account show
+
+                - script: |
+                    curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                    databricks --version
+                  displayName: 'Install Databricks CLI'
+
+                - task: AzureCLI@2
+                  displayName: 'Run DR drill'
+                  inputs:
+                    azureSubscription: $(AZURE_SERVICE_CONNECTION)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      export DATABRICKS_HOST=$(az keyvault secret show \
+                        --vault-name "kv-banking-$(environment)" \
+                        --name "databricks-host" \
+                        --query value -o tsv)
+                      export DATABRICKS_AUTH_TYPE=azure-cli
+
+                      bash scripts/dr_drill.sh --env $(environment) --execute
+
+                - task: PublishBuildArtifacts@1
+                  condition: always()
+                  inputs:
+                    pathToPublish: docs/dr-reports
+                    artifactName: dr-drill-report-$(environment)

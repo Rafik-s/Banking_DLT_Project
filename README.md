@@ -26,6 +26,7 @@
 11. [Running the Pipeline](#-running-the-pipeline)
 12. [Monitoring & Observability](#-monitoring--observability)
 13. [Maintenance & Operations](#-maintenance--operations)
+13A  [Platform Operations](#-platform-operations)
 14. [CI/CD Pipeline](#-cicd-pipeline)
 15. [Testing](#-testing)
 16. [Troubleshooting](#-troubleshooting)
@@ -549,6 +550,29 @@ Unity Catalog automatically captures lineage. View in **Catalog Explorer → [ta
 - Downstream consumers (Dashboards, Notebooks, SQL queries)
 
 ---
+## 🏗️ Platform Operations
+
+| Topic | Document |
+|---|---|
+| **Disaster Recovery** | [`docs/DR_PLAN.md`](docs/DR_PLAN.md) — RPO/RTO, failover procedures, quarterly drills |
+| **Network Architecture** | [`docs/NETWORK_ARCHITECTURE.md`](docs/NETWORK_ARCHITECTURE.md) — VNet, Private Link, egress firewall |
+| **Key Vault Integration** | [`docs/KEY_VAULT_INTEGRATION.md`](docs/KEY_VAULT_INTEGRATION.md) — secret scopes, rotation, RBAC |
+| **Environment Separation** | [`docs/ENVIRONMENT_SEPARATION.md`](docs/ENVIRONMENT_SEPARATION.md) — Dev/QA/Prod isolation model |
+| **Terraform State Security** | [`docs/TERRAFORM_STATE.md`](docs/TERRAFORM_STATE.md) — remote backend, recovery |
+| **Secret Management** | [`docs/SECRET_MANAGEMENT.md`](docs/SECRET_MANAGEMENT.md) — lifecycle, WIF, emergency rotation |
+| **Operational Runbook** | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — on-call procedures |
+| **Incident Response** | [`docs/INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md) — severity levels, playbooks |
+
+### Resilience Targets
+
+| Metric | Target |
+|---|---|
+| **RPO** (Recovery Point Objective) | ≤ 15 minutes |
+| **RTO** (Recovery Time Objective) | ≤ 60 minutes |
+| **Data Durability** | 99.999999999% (11 nines) |
+| **DR Drill Frequency** | Quarterly (automated) |
+| **Last DR Drill** | See `docs/dr-reports/` |
+
 
 ## 🔧 Maintenance & Operations
 
